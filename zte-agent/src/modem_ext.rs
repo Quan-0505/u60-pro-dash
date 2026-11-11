@@ -1,0 +1,280 @@
+use serde_json::{json, Value};
+
+use crate::cache;
+use crate::handlers::AppState;
+use crate::ubus;
+
+pub fn modem_data_get(state: &AppState) -> (u16, Value) {
+    match wwan(state) {
+        Ok(data) => (200, json!({"ok": true, "data": data})),
+        Err(e) => (503, json!({"ok": false, "error": e})),
+    }
+}
+
+/// `zwrt_data get_wwaniface` for the data call, through the shared cache.
+pub(crate) fn wwan(state: &AppState) -> Result<Value, String> {
+    let fetch = || ubus::call("zwrt_data", "get_wwaniface", Some(r#"{"cid":1}"#));
+    state.cache.get_or_fetch(cache::MODEM_DATA, cache::MODEM_DATA_TTL, fetch)
+}
+
+/// The data daemon applies mode changes asynchronously, so after a local
+/// write the modem/data entry is dropped and reads stay near-fresh for the
+/// settle window (the apps run 2 s confirmation polls against it).
+fn settle_modem_data(state: &AppState) {
+    state
+        .cache
+        .invalidate_with_settle(cache::MODEM_DATA, cache::SETTLE_WINDOW);
+}
+
+/// A user-initiated modem change: the no-service policy and the connectivity
+/// watchdog hold off for 2 min.
+pub(crate) fn note_user_modem_change(state: &AppState) -> std::sync::MutexGuard<'_, ()> {
+    let guard = state.esim.note_user_modem_change();
+    let now = std::time::Instant::now();
+    state.oos_policy.set_user_activity(now);
+    state.conn_watchdog.set_user_activity(now);
+    guard
+}
+
+/// POST /api/modem/online from the app: AT+CFUN=1 plus the user-activity
+/// bookkeeping (the policies' own effects send AT+CFUN=1 directly and never
+/// come through here).
+pub fn modem_online_user(state: &AppState) -> (u16, Value) {
+    let _command = note_user_modem_change(state);
+    state.oos_policy.user_mode(true);
+    crate::handlers::modem_online(state)
+}
+
+pub fn modem_data_set(state: &AppState, body: &[u8]) -> (u16, Value) {
+    let parsed: Value = match serde_json::from_slice(body) {
+        Ok(v) => v,
+        Err(_) => return (400, json!({"ok": false, "error": "invalid JSON"})),
+    };
+    let _command = note_user_modem_change(state);
+    let result = ubus::call("zwrt_data", "set_wwaniface", Some(&parsed.to_string()));
+    settle_modem_data(state);
+    match result {
+        Ok(data) => (200, json!({"ok": true, "data": data})),
+        Err(e) => (503, json!({"ok": false, "error": e})),
+    }
+}
+
+pub(crate) fn airplane_enabled(mode: &str) -> Option<bool> {
+    match mode {
+        "ONLINE" => Some(false),
+        // B31 can settle on LOW_POWER after a QoS change while flight mode
+        // is active. The device reports CFUN=0; it is a known radio-off
+        // state, not an unreadable modem or an unsupported command target.
+        "LPM" | "OFFLINE" | "LOW_POWER" => Some(true),
+        _ => None,
+    }
+}
+
+pub fn modem_airplane(state: &AppState, body: &[u8]) -> (u16, Value) {
+    let parsed: Value = match serde_json::from_slice(body) {
+        Ok(v) => v,
+        Err(_) => return (400, json!({"ok":false,"error":"invalid JSON"})),
+    };
+    let target = match parsed["operate_mode"].as_str() {
+        Some(mode @ ("ONLINE" | "LPM" | "OFFLINE")) => mode,
+        _ => return (400, json!({"ok":false,"error":"operate_mode must be ONLINE, LPM or OFFLINE"})),
+    };
+    let _command = note_user_modem_change(state);
+    let response = if target == "ONLINE" {
+        // Firmware's ubus ONLINE does not recover from LPM. Preserve the known AT path.
+        state.oos_policy.user_mode(true);
+        crate::handlers::modem_online(state)
+    } else {
+        let result = ubus::call_bounded("zte_nwinfo_api", "nwinfo_set_mode", Some(&json!({"operate_mode":target}).to_string()), 3);
+        settle_modem_data(state);
+        match result {
+            Ok(_) => {
+                state.oos_policy.user_mode(false);
+                (200, json!({"ok":true}))
+            }
+            Err(error) => (503, json!({"ok":false,"error":error})),
+        }
+    };
+    // Mark the request's outcome on both old and new live projections.
+    crate::events::touch(crate::events::Topic::Modem);
+    crate::events::touch(crate::events::Topic::Operating);
+    let confirmed = verify_radio_mode(
+        target, response,
+        || crate::handlers::read_uci_option("zte_nwinfo", "sys_info", "operate_mode"),
+        std::time::Duration::from_secs(8), std::time::Duration::from_millis(200),
+    );
+    if confirmed.0 == 200 { state.oos_policy.user_mode(target == "ONLINE"); }
+    crate::events::touch(crate::events::Topic::Modem);
+    crate::events::touch(crate::events::Topic::Operating);
+    confirmed
+}
+
+fn verify_radio_mode(
+    target: &str,
+    command_result: (u16, Value),
+    mut read_mode: impl FnMut() -> Result<String, String>,
+    wait: std::time::Duration,
+    poll: std::time::Duration,
+) -> (u16, Value) {
+    let expected = airplane_enabled(target);
+    let deadline = std::time::Instant::now() + wait;
+    loop {
+        if let Ok(mode) = read_mode() {
+            // B31 reports OFFLINE after a successful LPM request (CFUN=0).
+            // CFUN=1 can also apply without an OK reply. Read the real state
+            // after either outcome, without sending the command a second time.
+            if expected.is_some() && airplane_enabled(&mode) == expected {
+                // ONLINE confirms the radio, not registration or remote reachability.
+                return (200, json!({"ok":true,"data":{"operate_mode":mode}}));
+            }
+        }
+        if std::time::Instant::now() >= deadline {
+            if command_result.0 >= 400 { return command_result; }
+            return (503, json!({"ok":false,"error":"Radio mode change could not be verified; check current mobile network status"}));
+        }
+        std::thread::sleep(poll);
+    }
+}
+
+#[cfg(test)]
+mod radio_mode_tests {
+    use super::*;
+    use std::time::Duration;
+
+    #[test]
+    fn firmware_offline_is_a_valid_lpm_readback_but_unknown_is_not() {
+        assert_eq!(airplane_enabled("LPM"), Some(true));
+        assert_eq!(airplane_enabled("OFFLINE"), airplane_enabled("LPM"));
+        assert_eq!(airplane_enabled("LOW_POWER"), airplane_enabled("LPM"));
+        assert_eq!(airplane_enabled("ONLINE"), Some(false));
+        for mode in ["", "RESET", "unknown"] {
+            assert_eq!(airplane_enabled(mode), None);
+        }
+    }
+
+    #[test]
+    fn missing_at_ack_can_be_confirmed_by_actual_online_state() {
+        let mut modes = ["OFFLINE", "ONLINE"].into_iter();
+        let result = verify_radio_mode(
+            "ONLINE", (503, json!({"ok":false,"error":"AT+CFUN=1 failed"})),
+            || Ok(modes.next().unwrap().into()), Duration::from_secs(1), Duration::ZERO,
+        );
+        assert_eq!(result.0, 200);
+        assert_eq!(result.1["data"]["operate_mode"], "ONLINE");
+    }
+
+    #[test]
+    fn flight_remains_known_across_bandwidth_change_and_radio_recovery() {
+        // Observed B31 sequence: entry OFFLINE, QoS change LOW_POWER,
+        // restoration LOW_POWER until the modem finally reports ONLINE.
+        for mode in ["OFFLINE", "LOW_POWER"] {
+            assert_eq!(airplane_enabled(mode), Some(true));
+            let result = verify_radio_mode(
+                "LPM", (200, json!({"ok":true})),
+                || Ok(mode.into()), Duration::ZERO, Duration::ZERO,
+            );
+            assert_eq!(result.0, 200);
+            assert_eq!(result.1["data"]["operate_mode"], mode);
+        }
+        let mut modes = ["LOW_POWER", "LOW_POWER", "ONLINE"].into_iter();
+        let result = verify_radio_mode(
+            "ONLINE", (503, json!({"ok":false,"error":"AT+CFUN=1 failed"})),
+            || Ok(modes.next().unwrap().into()), Duration::from_secs(1), Duration::ZERO,
+        );
+        assert_eq!(result.0, 200);
+        assert_eq!(airplane_enabled(result.1["data"]["operate_mode"].as_str().unwrap()), Some(false));
+    }
+
+    #[test]
+    fn command_ack_alone_never_confirms_a_radio_change() {
+        for mode in ["OFFLINE", "unknown"] {
+            let result = verify_radio_mode(
+                "ONLINE", (200, json!({"ok":true})),
+                || Ok(mode.into()), Duration::ZERO, Duration::ZERO,
+            );
+            assert_eq!(result.0, 503);
+        }
+        let result = verify_radio_mode(
+            "LPM", (200, json!({"ok":true})),
+            || Ok("OFFLINE".into()), Duration::ZERO, Duration::ZERO,
+        );
+        assert_eq!(result.0, 200);
+        assert_eq!(result.1["data"]["operate_mode"], "OFFLINE");
+    }
+
+    #[test]
+    fn unconfirmed_failure_keeps_the_original_error() {
+        let failure = (503, json!({"ok":false,"error":"AT+CFUN=1 failed"}));
+        assert_eq!(verify_radio_mode(
+            "ONLINE", failure.clone(), || Err("unavailable".into()), Duration::ZERO, Duration::ZERO,
+        ), failure);
+    }
+}
+
+pub fn modem_network_mode_set(state: &AppState, body: &[u8]) -> (u16, Value) {
+    let parsed: Value = match serde_json::from_slice(body) {
+        Ok(v) => v,
+        Err(_) => return (400, json!({"ok": false, "error": "invalid JSON"})),
+    };
+    let _command = note_user_modem_change(state);
+    let result = ubus::call(
+        "zte_nwinfo_api",
+        "nwinfo_set_netselect",
+        Some(&parsed.to_string()),
+    );
+    settle_modem_data(state);
+    match result {
+        Ok(data) => {
+            match crate::dns_control::network_preference_changed(state) {
+                Ok(()) => eprintln!("[dns] network preference changed: caches and sessions reset"),
+                Err(error) => {
+                    eprintln!("[dns] network preference changed: immediate reset failed: {error}")
+                }
+            }
+            (200, json!({"ok": true, "data": data}))
+        }
+        Err(e) => (503, json!({"ok": false, "error": e})),
+    }
+}
+
+pub fn modem_scan(state: &AppState) -> (u16, Value) {
+    let _command = note_user_modem_change(state);
+    match ubus::call("zte_nwinfo_api", "nwinfo_manual_scan", Some("{}")) {
+        Ok(data) => (200, json!({"ok": true, "data": data})),
+        Err(e) => (503, json!({"ok": false, "error": e})),
+    }
+}
+
+pub fn modem_scan_status(_state: &AppState) -> (u16, Value) {
+    match ubus::call("zte_nwinfo_api", "nwinfo_m_netselect_status", Some("{}")) {
+        Ok(data) => (200, json!({"ok": true, "data": data})),
+        Err(e) => (503, json!({"ok": false, "error": e})),
+    }
+}
+
+pub fn modem_scan_results(_state: &AppState) -> (u16, Value) {
+    match ubus::call("zte_nwinfo_api", "nwinfo_m_netselect_contents", Some("{}")) {
+        Ok(data) => (200, json!({"ok": true, "data": data})),
+        Err(e) => (503, json!({"ok": false, "error": e})),
+    }
+}
+
+pub fn modem_register(state: &AppState, body: &[u8]) -> (u16, Value) {
+    let parsed: Value = match serde_json::from_slice(body) {
+        Ok(v) => v,
+        Err(_) => return (400, json!({"ok": false, "error": "invalid JSON"})),
+    };
+    let _command = note_user_modem_change(state);
+    match ubus::call("zte_nwinfo_api", "nwinfo_manual_register", Some(&parsed.to_string())) {
+        Ok(data) => (200, json!({"ok": true, "data": data})),
+        Err(e) => (503, json!({"ok": false, "error": e})),
+    }
+}
+
+pub fn modem_register_result(_state: &AppState) -> (u16, Value) {
+    match ubus::call("zte_nwinfo_api", "nwinfo_m_netselect_result", Some("{}")) {
+        Ok(data) => (200, json!({"ok": true, "data": data})),
+        Err(e) => (503, json!({"ok": false, "error": e})),
+    }
+}
+

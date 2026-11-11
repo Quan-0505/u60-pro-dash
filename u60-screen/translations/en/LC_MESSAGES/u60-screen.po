@@ -1,0 +1,336 @@
+# Generated from locales/screen.json; do not edit.
+msgid ""
+msgstr "Content-Type: text/plain; charset=UTF-8\nLanguage: en\nPlural-Forms: nplurals=1; plural=0;\n"
+
+msgid " 确认"
+msgstr " Confirm"
+
+msgid " 秒后可以重试"
+msgstr " seconds until retry"
+
+msgid "60 秒"
+msgstr "60 seconds"
+
+msgid "U60   →   节点小宝   →   目标"
+msgstr "U60 → NodeBaby → Goals"
+
+msgid "U60 · 原生屏幕预览"
+msgstr "U60 · Screen preview"
+
+msgid "Wi-Fi 可用"
+msgstr "Wi-Fi available"
+
+msgid "Wi-Fi 连接卡片"
+msgstr "Wi-Fi connection card"
+
+msgid "{0} 台设备"
+msgstr "{0} devices"
+
+msgid "↑ 上传 / Mbps"
+msgstr "↑ Upload / Mbps"
+
+msgid "↓ 下载 / Mbps"
+msgstr "↓ Download / Mbps"
+
+msgid "−2 分钟"
+msgstr "−2 min"
+
+msgid "优先响应与处理能力，温度和功耗可能上升。"
+msgstr "Prioritize responsiveness; heat and power use may increase."
+
+msgid "保留 Wi-Fi、USB 与本地管理"
+msgstr "Keep Wi-Fi, USB and local access"
+
+msgid "信号详情"
+msgstr "Radio details"
+
+msgid "修改解锁密码"
+msgstr "Change unlock PIN"
+
+msgid "关闭密码解锁"
+msgstr "Disable PIN lock"
+
+msgid "切换 Wi-Fi 频段"
+msgstr "Switch Wi-Fi band"
+
+msgid "切换演示场景"
+msgstr "Switch demo scenario"
+
+msgid "删除"
+msgstr "Delete"
+
+msgid "刷新状态"
+msgstr "Refresh status"
+
+msgid "刷新连接状态"
+msgstr "Refresh connection status"
+
+msgid "取消"
+msgstr "Cancel"
+
+msgid "后台连接 · "
+msgstr "Agent · "
+
+msgid "启动与熄屏后自动锁定。开启密码后，更改或关闭密码需要先验证当前密码。"
+msgstr "Activate and lock automatically after screening. After opening the password, changing or closing the password requires verification of the current password."
+
+msgid "固件未提供系统主题，沿用当前浅色或深色设置。"
+msgstr "The firmware has no system theme. The current light or dark appearance is retained."
+
+msgid "均衡"
+msgstr "Balanced"
+
+msgid "处理中"
+msgstr "Working"
+
+msgid "完成"
+msgstr "Done"
+
+msgid "密码解锁"
+msgstr "PIN unlock"
+
+msgid "屏幕亮度  "
+msgstr "Brightness  "
+
+msgid "已开启 · 6–12 位数字密码"
+msgstr "Enabled · 6–12 digit PIN"
+
+msgid "已联网"
+msgstr "Connected"
+
+msgid "已连接"
+msgstr "Connected"
+
+msgid "应用带宽分配"
+msgstr "Bandwidth allocation"
+
+msgid "强调色"
+msgstr "Accent color"
+
+msgid "当前"
+msgstr "Current"
+
+msgid "当前读数为演示数据。"
+msgstr "These readings are demo data."
+
+msgid "快捷指标"
+msgstr "Quick metric"
+
+msgid "快捷控制"
+msgstr "Quick controls"
+
+msgid "性能"
+msgstr "Performance"
+
+msgid "性能模式"
+msgstr "Performance mode"
+
+msgid "所选模式尚未生效，请核对设备状态。"
+msgstr "The selected profile is not currently applied. Check device status before retrying."
+
+msgid "按需调整，兼顾响应、温度与功耗。"
+msgstr "Balance responsiveness, temperature and power use."
+
+msgid "换行"
+msgstr "Enter"
+
+msgid "提示"
+msgstr "Notice"
+
+msgid "放大连接二维码"
+msgstr "Enlarge Wi-Fi QR code"
+
+msgid "断开并清除本地会话"
+msgstr "Disconnect and clear local session"
+
+msgid "明暗、配色与亮度即时生效。"
+msgstr "Theme, color and brightness apply immediately."
+
+msgid "显示"
+msgstr "Show"
+
+msgid "显示密码"
+msgstr "Show password"
+
+msgid "暂无有效读数"
+msgstr "No valid reading"
+
+msgid "服务摘要"
+msgstr "Service summary"
+
+msgid "未开启 · 仅长按解锁"
+msgstr "Unlocked · Long only by unlocking"
+
+msgid "未联网"
+msgstr "Offline"
+
+msgid "本机服务与隧道状态"
+msgstr "Local service and tunnel status"
+
+msgid "本次 "
+msgstr "Session "
+
+msgid "本页最近 2 分钟的观察记录；断线或暂停处留空。"
+msgstr "Observed on this page over the last 2 minutes. Gaps indicate disconnection or pauses."
+
+msgid "机身屏幕使用本机后台账号连接。也可以输入后台密码重新登录。"
+msgstr "The body screen connects to the home computer's backend account. You can also enter the backend password and log in again."
+
+msgid "松开继续"
+msgstr "Release to continue"
+
+msgid "极速：不区分应用优先级，按需使用带宽。"
+msgstr "Top speed: use bandwidth as needed, without app priority."
+
+msgid "查看设置与操作需要密码"
+msgstr "PIN required for settings"
+
+msgid "正在积累趋势"
+msgstr "Collecting samples"
+
+msgid "正在读取 Wi-Fi…"
+msgstr "Reading Wi-Fi…"
+
+msgid "此设置暂不可用。"
+msgstr "This setting is temporarily unavailable."
+
+msgid "流量套餐"
+msgstr "Data plan"
+
+msgid "浅色"
+msgstr "Light"
+
+msgid "深色"
+msgstr "Dark"
+
+msgid "清空"
+msgstr "Clear"
+
+msgid "温度保护正在限频，保留所选模式。"
+msgstr "Temperature protection is limiting processing capacity. Your selected profile is retained."
+
+msgid "演示"
+msgstr "Demo"
+
+msgid "演示运营商"
+msgstr "Example Mobile"
+
+msgid "熄屏"
+msgstr "Screen off"
+
+msgid "状态"
+msgstr "Status"
+
+msgid "状态未知"
+msgstr "Unknown state"
+
+msgid "电池供电"
+msgstr "Battery powered"
+
+msgid "电源与电池"
+msgstr "Power & battery"
+
+msgid "界面主题"
+msgstr "Theme"
+
+msgid "省电"
+msgstr "Power saving"
+
+msgid "知道了"
+msgstr "Got it"
+
+msgid "确认"
+msgstr "Confirm"
+
+msgid "确认执行"
+msgstr "Confirm action"
+
+msgid "确认操作"
+msgstr "Confirm action"
+
+msgid "移动网络"
+msgstr "Mobile network"
+
+msgid "空格"
+msgstr "Space"
+
+msgid "立即锁屏"
+msgstr "Lock now"
+
+msgid "管理"
+msgstr "Manage"
+
+msgid "自动"
+msgstr "Automatic"
+
+msgid "自动熄屏"
+msgstr "Automatic sleep"
+
+msgid "自定义颜色"
+msgstr "Custom color"
+
+msgid "蜂窝恢复后继续使用所选带宽策略。"
+msgstr "Mobile radio is off. Your bandwidth choice is retained."
+
+msgid "蜂窝流量已暂停"
+msgstr "Cellular traffic paused"
+
+msgid "蜂窝网络已关闭"
+msgstr "Cellular radio off"
+
+msgid "设置解锁密码"
+msgstr "Set unlock PIN"
+
+msgid "跟随系统"
+msgstr "System theme"
+
+msgid "输入 "
+msgstr "Enter "
+
+msgid "输入密码登录"
+msgstr "Sign in with password"
+
+msgid "返回"
+msgstr "Back"
+
+msgid "连接"
+msgstr "Connect"
+
+msgid "连接记录"
+msgstr "Connection history"
+
+msgid "退格"
+msgstr "Backspace"
+
+msgid "选择即应用"
+msgstr "Settings apply automatically."
+
+msgid "重新连接"
+msgstr "Reconnect"
+
+msgid "长按 1 秒解锁"
+msgstr "Hold 1 second to unlock"
+
+msgid "降低处理频率，吞吐能力可能下降。"
+msgstr "Reduce CPU frequency; throughput may decrease."
+
+msgid "随身网络"
+msgstr "Mobile hotspot"
+
+msgid "隐藏"
+msgstr "Hide"
+
+msgid "隐藏仅影响首页显示，不会停止服务。"
+msgstr "Hiding only changes the home display. Services keep running."
+
+msgid "隐藏密码"
+msgstr "Hide password"
+
+msgid "飞行模式"
+msgstr "Airplane mode"
+
+msgid "首页布局"
+msgstr "Home layout"
+
+msgid "高铁优化"
+msgstr "High-speed rail optimization"

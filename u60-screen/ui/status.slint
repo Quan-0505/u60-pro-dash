@@ -1,0 +1,129 @@
+import { Palette, Label } from "components.slint";
+import { ModeIcon } from "operating.slint";
+
+// One compact status row for the home, details and lock surfaces.
+export component StatusBar inherits Rectangle {
+    in property <bool> airplane;
+    in property <string> profile;
+    in property <bool> thermal;
+    in property <bool> rail;
+    in property <bool> interactive;
+    callback clicked;
+    in property <bool> awake: true;
+    in property <bool> locked;
+    in property <string> connection;
+    in property <string> network;
+    in property <int> signal-level: -1;
+    in property <bool> wifi-enabled;
+    in property <string> battery;
+    in property <int> battery-level: -1;
+    in property <bool> charging;
+    in property <bool> external-power;
+    in property <bool> bypass-power;
+    in property <string> power-label;
+    property <bool> charge-pulse;
+    height: 28px;
+    Timer {
+        interval: 500ms;
+        running: root.awake && root.charging;
+        triggered => { root.charge-pulse = !root.charge-pulse; }
+    }
+    identity := Rectangle {
+        x: 14px; width: root.locked ? 52px : 36px; height: parent.height;
+        if root.locked: Path {
+            x: 0px; y: 9px; width: 10px; height: 11px;
+            commands: "M 2 4 V 2.5 A 3 3 0 0 1 8 2.5 V 4 M 0.5 4 H 9.5 V 10.5 H 0.5 Z M 5 6.5 V 8";
+            stroke: Palette.muted; stroke-width: 1px; stroke-line-join: round;
+        }
+        Label {
+            x: root.locked ? 16px : 0px; y: 0px; width: 36px; height: parent.height;
+            text: "U60"; font-size: 14px; font-weight: 650; letter-spacing: 0.6px;
+            horizontal-alignment: left; vertical-alignment: center;
+        }
+    }
+    Label {
+        x: identity.x + identity.width + 6px; width: max(0px, indicators.x - self.x - 8px);
+        height: parent.height; text: root.connection; font-size: 11px;
+        color: Palette.muted; vertical-alignment: center;
+    }
+    indicators := HorizontalLayout {
+        x: root.width - self.width - 14px; width: self.preferred-width;
+        height: parent.height; spacing: 5px;
+        if root.thermal || root.rail: Rectangle { width: 13px; ModeIcon { y: 7px; kind: root.thermal ? "thermal" : "rail"; width: 13px; height: 15px; stroke: root.thermal ? Palette.warning : Palette.muted; } }
+        if root.profile == "saving" || root.profile == "performance": Rectangle { width: 14px; ModeIcon { y: 7px; kind: root.profile; width: 14px; height: 15px; } }
+        if root.airplane: Rectangle { width: 16px; ModeIcon { y: 6px; kind: "airplane"; width: 16px; height: 16px; stroke: Palette.muted; } }
+        if !root.airplane: Rectangle {
+            width: 14px;
+            for bar in [0, 1, 2, 3]: Rectangle {
+                x: bar * 4px; y: 20px - self.height;
+                width: 2px; height: 3px + bar * 3px;
+                background: root.signal-level > bar ? (root.signal-level == 1 ? Palette.warning : Palette.muted) : Palette.line;
+            }
+            if root.signal-level == 0: Path {
+                x: 1px; y: 8px; width: 12px; height: 12px;
+                commands: "M 0 0 L 12 12";
+                stroke: Palette.warning; stroke-width: 1px;
+            }
+            if root.signal-level < 0: Label {
+                text: "?"; font-size: 12px; horizontal-alignment: center; vertical-alignment: center;
+            }
+        }
+        if !root.airplane && root.network != "": Label {
+            text: root.network; width: self.preferred-width; font-size: 11px;
+            color: Palette.muted; vertical-alignment: center;
+        }
+        if root.wifi-enabled: Rectangle {
+            width: 14px;
+            // 三段同心弧 + 圆点，端点严格以 x=12 对称、间距 4，
+            // 原来端点 1..23 在 14px 宽里缩放后左右不均匀。
+            Path {
+                x: 0px; y: 8px; width: 15px; height: 12px;
+                viewbox-width: 24; viewbox-height: 20;
+                commands: "M 2 7 A 16 16 0 0 1 22 7 M 6 11 A 10 10 0 0 1 18 11 M 9.5 15 A 4.5 4.5 0 0 1 14.5 15 M 12 18.5 L 12.01 18.5";
+                stroke: Palette.muted; stroke-width: 1.35px; stroke-line-cap: round;
+            }
+        }
+        Rectangle {
+            width: root.external-power && !root.charging ? 36px : 23px;
+            accessible-role: text;
+            accessible-label: root.power-label + " " + root.battery;
+            property <color> ink: root.external-power || root.charging
+                ? (root.bypass-power ? Palette.accent-ink : Palette.good)
+                : root.battery-level >= 0 && root.battery-level <= 20 ? Palette.warning : Palette.muted;
+            Path {
+                x: 1px; y: 9px; width: 21px; height: 11px;
+                viewbox-width: 23; viewbox-height: 12;
+                commands: root.charging
+                    ? "M 6 1 H 2 Q 1 1 1 2 V 10 Q 1 11 2 11 H 6 M 16 1 H 19 Q 20 1 20 2 V 10 Q 20 11 19 11 H 16 M 22 4 V 8"
+                    : "M 2 1 H 19 Q 20 1 20 2 V 10 Q 20 11 19 11 H 2 Q 1 11 1 10 V 2 Q 1 1 2 1 M 22 4 V 8";
+                stroke: parent.ink; stroke-width: 1.3px; stroke-line-cap: round; stroke-line-join: round;
+            }
+            if root.charging: Path {
+                x: 7px; y: 7px; width: 9px; height: 15px;
+                commands: "M 5 0 L 0 8 H 4 L 3 15 L 9 6 H 5 Z";
+                fill: parent.ink; opacity: root.charge-pulse ? 0.45 : 1;
+            }
+            if !root.charging && root.battery-level >= 0: Rectangle {
+                x: 4px; y: 12px; height: 5px;
+                width: round(13 * root.battery-level / 100) * 1px;
+                background: parent.ink; border-radius: 1px;
+            }
+            if root.battery-level < 0 && !root.charging: Label {
+                x: 1px; width: 18px; height: parent.height;
+                text: "?"; font-size: 10px; horizontal-alignment: center; vertical-alignment: center;
+            }
+            if root.external-power && !root.charging: Path {
+                x: 25px; y: 9px; width: 10px; height: 12px;
+                commands: root.bypass-power
+                    ? "M 2 0 V 3 M 6 0 V 3 M 0 3 H 8 V 6 Q 8 8 4 8 Q 0 8 0 6 Z M 4 8 V 11 M 6 10 H 10 M 8 8 L 10 10 L 8 12"
+                    : "M 2 0 V 3 M 6 0 V 3 M 0 3 H 8 V 6 Q 8 8 4 8 Q 0 8 0 6 Z M 4 8 V 12";
+                stroke: parent.ink; stroke-width: 1px; stroke-line-cap: round; stroke-line-join: round;
+            }
+        }
+        Label {
+            text: root.battery; width: self.preferred-width; font-size: 11px; font-weight: 650;
+            color: Palette.muted; vertical-alignment: center; horizontal-alignment: right;
+        }
+    }
+    TouchArea { enabled: root.interactive && !root.locked; accessible-role: button; accessible-label: @tr("快捷控制"); clicked => { root.clicked(); } }
+}

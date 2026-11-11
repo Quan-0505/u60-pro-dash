@@ -1,0 +1,240 @@
+.extension-form-grid {
+  margin-top: 8px;
+  align-items: start;
+}
+.extension-toggle-list {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+  margin: 4px 0 22px;
+}
+.extension-toggle {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  min-width: 0;
+  padding: 16px 17px;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  background: var(--surface-2);
+}
+.extension-toggle > div {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+.extension-toggle strong {
+  font-size: 13px;
+  font-weight: 650;
+}
+.extension-toggle small {
+  color: var(--subtle);
+  font-size: 11px;
+  line-height: 1.7;
+}
+.extension-numeric-grid {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+.extension-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  margin-top: 8px;
+}
+.extension-actions > span {
+  flex: 1 1 220px;
+  color: var(--subtle);
+  font-size: 12px;
+}
+.extension-table-wrap {
+  max-width: 100%;
+  overflow-x: auto;
+  margin-top: 15px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+}
+.extension-table {
+  width: 100%;
+  min-width: 560px;
+  border-collapse: collapse;
+  font-size: 12px;
+}
+.extension-table th,
+.extension-table td {
+  padding: 12px 14px;
+  text-align: left;
+  white-space: nowrap;
+  border-bottom: 1px solid var(--line);
+}
+.extension-table th {
+  color: var(--subtle);
+  background: var(--surface-2);
+  font-weight: 600;
+}
+.extension-table tr:last-child td {
+  border-bottom: 0;
+}
+.extension-plugin-inventory {
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  overflow: hidden;
+  margin: 20px 0;
+}
+.extension-inventory-heading,
+.extension-plugin-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 15px;
+}
+.extension-inventory-heading {
+  background: var(--surface-2);
+  border-bottom: 1px solid var(--line);
+  font-size: 12px;
+}
+.extension-inventory-heading span {
+  display: inline-grid;
+  min-width: 24px;
+  height: 24px;
+  place-items: center;
+  color: var(--accent);
+  background: var(--accent-soft);
+  border-radius: 50%;
+}
+.extension-plugin-row {
+  border-bottom: 1px solid var(--line);
+  font-size: 12px;
+}
+.extension-plugin-row:last-child {
+  border-bottom: 0;
+}
+.extension-plugin-row > span {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.extension-plugin-actions {
+  margin-top: 14px;
+}
+.extension-code {
+  min-height: 390px;
+  resize: vertical;
+  font-family: ui-monospace, SFMono-Regular, Consolas, monospace !important;
+  font-size: 12px !important;
+  line-height: 1.6 !important;
+  tab-size: 2;
+}
+.extension-catalog-toolbar {
+  display: grid;
+  grid-template-columns: minmax(220px, 2fr) minmax(150px, 1fr) minmax(150px, 1fr);
+  gap: 14px;
+  margin: 22px 0 12px;
+}
+.extension-catalog-summary {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 8px 18px;
+  padding: 10px 0 14px;
+  color: var(--subtle);
+  font-size: 12px;
+}
+.extension-catalog-summary strong {
+  color: var(--text);
+}
+.extension-catalog-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 14px;
+}
+.extension-catalog-card {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  padding: 17px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--surface);
+}
+.extension-catalog-card-heading {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+}
+.extension-category {
+  color: var(--accent);
+  background: var(--accent-soft);
+  padding: 4px 8px;
+  border-radius: 20px;
+  font-size: 10px;
+}
+.extension-catalog-id {
+  color: var(--muted);
+  font: 10px ui-monospace, SFMono-Regular, Consolas, monospace;
+}
+.extension-catalog-card h3 {
+  margin: 12px 0 6px;
+  font-size: 14px;
+  line-height: 1.6;
+}
+.extension-catalog-version,
+.extension-catalog-compat,
+.extension-catalog-description,
+.extension-catalog-card footer {
+  color: var(--subtle);
+  font-size: 11px;
+  line-height: 1.7;
+}
+.extension-catalog-version {
+  margin: 0 0 8px;
+}
+.extension-catalog-compat {
+  margin: 0;
+}
+.extension-catalog-description {
+  margin: 12px 0 18px;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  flex: 1;
+}
+.extension-catalog-card footer {
+  padding-top: 10px;
+  border-top: 1px solid var(--line);
+}
+.extension-subtle {
+  color: var(--subtle);
+  font-size: 11px;
+  line-height: 1.8;
+  margin: 15px 0 0;
+}
+@media (max-width: 1100px) {
+  .extension-catalog-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+@media (max-width: 760px) {
+  .extension-toggle-list,
+  .extension-catalog-toolbar,
+  .extension-catalog-grid,
+  .extension-numeric-grid {
+    grid-template-columns: 1fr;
+  }
+  .extension-toggle {
+    padding: 14px;
+  }
+  .extension-code {
+    min-height: 300px;
+    font-size: 11px !important;
+  }
+  .extension-actions .btn,
+  .extension-plugin-actions .btn {
+    font-size: 11px;
+  }
+  .extension-plugin-row {
+    align-items: flex-start;
+  }
+}

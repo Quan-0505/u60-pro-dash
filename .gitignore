@@ -1,0 +1,66 @@
+/target
+.claude/
+.agents/
+skills-lock.json
+logs/
+.DS_Store
+
+# Android
+*.apk
+*.ap_
+*.aab
+*.dex
+*.keystore
+*.jks
+*.iml
+.gradle/
+build/
+local.properties
+captures/
+mobile/android/**/.gradle/
+mobile/android/**/build/
+mobile/android/**/local.properties
+
+# iOS / Xcode
+DerivedData/
+*.xcuserstate
+*.xcuserdata/
+*.xcodeproj/project.xcworkspace/xcuserdata/
+*.xcodeproj/xcuserdata/
+mobile/ios/**/build/
+mobile/ios/**/DerivedData/
+mobile/ios/**/*.xcuserstate
+
+# Apple push credentials and private device configuration
+*.p8
+**/live-activity.private.json
+
+# Private research material: firmware images and device backups (vendor
+# binaries, device-specific data), raw probe captures (serial numbers, MACs,
+# IPs, screenshots) and personal deployment logs never go into the repository.
+/firmware/
+/probe_evidence/
+zte-agent/docs/apns-deployment-*.md
+*.dtb
+__pycache__/
+
+# Fork-local credentials and device state (examples stay versioned).
+.env
+.env.*
+!.env.example
+!.env.*.example
+*.private.json
+*.private.env
+*.private.pem
+**/tailscaled.state
+**/tailscaled.state.*
+**/start_zte_agent.sh
+/device-backups/
+/ota-private.pem
+/ota-public.pem
+/ota-key-info.txt
+
+
+# Locally built gateway packages.
+/local-tools/*/zte-agent
+/local-tools/*/zte-agent.sha256

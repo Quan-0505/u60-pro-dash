@@ -1,0 +1,641 @@
+import { Palette, Label, Paragraph, TapButton, MenuRow, Stat, Brightness, TrafficPanel, AmbientBackground, GlassPanel, NavigationIcon } from "components.slint";
+import { LockScreen, PinPad } from "lock.slint";
+import { TextEditor } from "editor.slint";
+import { StatusBar } from "status.slint";
+import { ModeSummary, OperatingControls } from "operating.slint";
+import { WifiCard } from "wifi.slint";
+import { Reading, Trend, TrendPlot, Meter, DataRow, ReadingTable, TrendCard, MeterGrid, DataTable } from "data.slint";
+import "../assets/U60Sans.ttf";
+import "../assets/U60Hangul.ttf";
+export { Palette }
+export struct MenuEntry { id: string, title: string, subtitle: string, tag: string }
+export { Reading, Trend, TrendPlot, Meter, DataRow }
+export struct FeatureAction { id: string, label: string, enabled: bool, index: int }
+export struct FeatureInput { index: int, title: string, subtitle: string, tag: string }
+
+export component Screen inherits Window {
+    width: 320px; height: 480px;
+    title: @tr("U60 · 原生屏幕预览");
+    default-font-family: root.language == "ko" ? "U60 Hangul" : "U60 Sans";
+    default-font-size: 14px;
+    background: Palette.bg;
+    in-out property <int> tab: 0;
+    // 0 overview, 1 menu, 2 detail, 3 appearance, 4 节点小宝 network.
+    in-out property <int> view: 0;
+    in-out property <string> heading: @tr("随身网络");
+    in-out property <string> kicker: "01 / OVERVIEW";
+    in-out property <bool> can-back: false;
+    in-out property <[MenuEntry]> entries;
+    in-out property <[Reading]> readings;
+    in-out property <[Trend]> trends;
+    in-out property <[Meter]> meters;
+    in-out property <[DataRow]> data-rows;
+    in-out property <string> data-name;
+    in-out property <string> data-first;
+    in-out property <string> data-second;
+    in-out property <bool> data-replaces-items;
+    in-out property <[string]> actions;
+    in-out property <[FeatureInput]> feature-fields;
+    in-out property <[FeatureAction]> feature-actions;
+    in-out property <bool> feature-busy;
+    in-out property <bool> feature-can-refresh;
+    in-out property <bool> feature-refreshing;
+    in-out property <length> content-offset <=> scroll.content-y;
+    out property <length> feature-list-top;
+    out property <length> feature-entry-step: root.data-replaces-items ? 44px : 76px;
+    in-out property <string> feature-notice;
+    in-out property <image> feature-qr;
+    in-out property <string> feature-qr-caption;
+    in-out property <string> feature-content;
+    in-out property <bool> feature-has-qr;
+    in-out property <image> home-wifi-qr;
+    in-out property <image> home-wifi-qr-large;
+    in-out property <bool> home-wifi-ready;
+    in-out property <string> home-wifi-name;
+    in-out property <string> home-wifi-band;
+    in-out property <string> home-wifi-key;
+    in-out property <string> home-wifi-message: @tr("正在读取 Wi-Fi…");
+    in-out property <bool> home-wifi-protected;
+    in-out property <bool> home-wifi-revealed;
+    in-out property <bool> home-wifi-switchable;
+    in-out property <bool> wifi-expanded;
+    callback wifi-toggle-password;
+    callback wifi-switch-band;
+    callback wifi-expand;
+    callback wifi-close;
+    in-out property <bool> choice-visible;
+    in-out property <string> choice-title;
+    in-out property <[MenuEntry]> choices;
+    in-out property <bool> confirm-visible;
+    in-out property <string> confirm-body;
+    in-out property <string> confirm-phrase;
+    in-out property <string> confirm-word;
+    in-out property <string> operating-page;
+    in-out property <int> airplane-state: -1;
+    in-out property <string> performance-profile;
+    in-out property <string> performance-label;
+    in-out property <bool> thermal-limited;
+    in-out property <bool> rail-active;
+    in-out property <int> control-airplane: -1;
+    in-out property <string> control-profile;
+    in-out property <bool> control-balanced;
+    in-out property <bool> control-performance;
+    in-out property <bool> control-saving;
+    in-out property <bool> control-applied: true;
+    in-out property <bool> control-thermal;
+    in-out property <string> control-rail;
+    in-out property <string> control-bandwidth;
+    in-out property <bool> control-bandwidth-enabled;
+    callback operating-change(string,string);
+    callback operating-bandwidth;
+    callback feature-edit(int);
+    callback feature-action(int);
+    callback feature-refresh;
+    callback choose(int);
+    callback choice-cancel;
+    callback confirm-accept;
+    callback confirm-cancel;
+    in-out property <string> description;
+    in-out property <string> note;
+    in-out property <bool> asleep: false;
+    in-out property <int> brightness: 70;
+    in-out property <string> sleep-label: @tr("60 秒");
+    in-out property <string> accent-hex: "#2563eb";
+    in-out property <string> language: "zh-Hans";
+    callback set-language(string);
+    in-out property <bool> demo: true;
+    in-out property <string> connection-label: @tr("演示");
+    in-out property <bool> connection-live;
+    in-out property <bool> wifi-enabled;
+    in-out property <string> lock-clock: "—:—";
+    in-out property <string> lock-date;
+    in-out property <string> lock-download-path;
+    in-out property <string> lock-upload-path;
+    in-out property <int> lock-samples;
+    in-out property <string> cell-info: "";
+    in-out property <string> carrier-label: @tr("演示运营商");
+    in-out property <string> network-mode: "5G";
+    in-out property <string> radio-label: "5G SA · n78";
+    in-out property <string> signal-strength: "−86";
+    in-out property <string> client-count: "3";
+    in-out property <string> traffic-total: "2.38 GB";
+    in-out property <string> tailnet-status: @tr("已连接");
+    in-out property <[Reading]> tailnet-readings;
+    in-out property <string> probe-target;
+    in-out property <string> probe-note;
+    in-out property <bool> editor-visible;
+    in-out property <string> editor-title;
+    in-out property <string> editor-hint;
+    in-out property <string> editor-error;
+    in-out property <string> editor-value;
+    in-out property <bool> editor-secret;
+    in-out property <bool> editor-multiline;
+    in-out property <int> editor-layout;
+    callback edit(string);
+    callback editor-key(string);
+    callback editor-submit;
+    callback editor-cancel;
+    callback refresh;
+    callback agent-forget;
+    in-out property <string> battery: "82%";
+    in-out property <int> battery-level: 82;
+    in-out property <bool> charging;
+    in-out property <bool> external-power;
+    in-out property <bool> bypass-power;
+    in-out property <string> power-label: @tr("电池供电");
+    in-out property <int> signal-level: 3;
+    in-out property <string> network-badge: "5G";
+    in-out property <bool> network-online: true;
+    in-out property <bool> tailnet-online: true;
+    in-out property <string> download: "128.6";
+    in-out property <string> upload: "16.4";
+    in-out property <string> message;
+    in-out property <int> page-revision;
+    in-out property <bool> locked: true;
+    in-out property <bool> pin-enabled;
+    in-out property <bool> pin-visible;
+    in-out property <bool> pin-busy;
+    in-out property <string> pin-title;
+    in-out property <string> pin-message;
+    in-out property <string> pin-masked;
+    in-out property <int> pin-remaining;
+    in-out property <float> hold-progress;
+    callback hold-start;
+    callback hold-tick;
+    callback hold-end(bool);
+    callback hold-cancel;
+    callback swipe-unlock(bool);
+    callback pin-digit(int);
+    callback pin-backspace;
+    callback pin-submit;
+    callback pin-cancel;
+    callback pin-setup(bool);
+    callback pin-key(string);
+    callback lock-now;
+    callback navigate(int);
+    callback open(string);
+    callback back;
+    callback action(int);
+    callback theme(bool);
+    callback system-theme;
+    in-out property <bool> follow-system;
+    callback home-toggle(string);
+    callback home-metric(int);
+    in-out property <bool> home-show-radio: true;
+    in-out property <bool> home-show-wifi: true;
+    in-out property <bool> home-show-services: true;
+    in-out property <bool> home-show-tailscale: true;
+    in-out property <bool> home-show-wireguard: true;
+    in-out property <bool> home-show-mihomo: true;
+    in-out property <[MenuEntry]> home-metrics;
+    in-out property <[MenuEntry]> home-services;
+    in-out property <[string]> home-metric-choices;
+    callback accent(string);
+    callback set-brightness(int);
+    callback cycle-sleep;
+    callback power;
+    callback activity;
+    callback scenario;
+    callback exit;
+    changed page-revision => { scroll.content-y = 0px; }
+    changed asleep => { if root.asleep { focus.focus(); } }
+    changed editor-visible => { if !root.editor-visible { focus.focus(); } }
+    focus := FocusScope {
+        width: parent.width; height: parent.height;
+        AmbientBackground { width: parent.width; height: parent.height; }
+        key-pressed(event) => {
+            root.activity();
+            if root.pin-visible {
+                if event.text == Key.Escape { root.pin-cancel(); }
+                else if event.text == Key.Return { root.pin-submit(); }
+                else if event.text == Key.Backspace { root.pin-backspace(); }
+                else { root.pin-key(event.text); }
+                return accept;
+            }
+            if root.editor-visible {
+                if event.text == Key.Escape { root.editor-cancel(); return accept; }
+                return reject;
+            }
+            if root.choice-visible || root.confirm-visible {
+                if event.text == Key.Escape { root.choice-cancel(); root.confirm-cancel(); return accept; }
+                if event.text == " " { root.power(); return accept; }
+                return accept;
+            }
+            if event.text == " " { root.power(); return accept; }
+            if root.locked { return accept; }
+            if event.text == Key.Escape { root.back(); return accept; }
+            if event.text == Key.RightArrow { root.navigate(mod(root.tab + 1, 3)); return accept; }
+            if event.text == Key.LeftArrow { root.navigate(mod(root.tab + 2, 3)); return accept; }
+            return reject;
+        }
+        init => { self.focus(); }
+        StatusBar {
+            x: 0px; y: 0px; width: parent.width;
+            awake: !root.asleep && !root.locked && !root.pin-visible;
+            connection: root.connection-live ? "" : root.connection-label; network: root.network-badge; signal-level: root.signal-level;
+            wifi-enabled: root.wifi-enabled;
+            battery: root.battery; battery-level: root.battery-level;
+            charging: root.charging; external-power: root.external-power; bypass-power: root.bypass-power;
+            power-label: root.power-label;
+            airplane: root.airplane-state == 1; profile: root.performance-profile;
+            thermal: root.thermal-limited; rail: root.rail-active;
+            interactive: !root.locked && !root.asleep;
+            clicked => { root.open("quick-controls"); }
+        }
+        Rectangle {
+            y: 28px; width: parent.width; height: 40px;
+            HorizontalLayout {
+                padding-left: 14px; padding-right: 14px; spacing: 8px;
+                if root.can-back: Rectangle {
+                    width: 36px;
+                    Label { text: "‹"; font-size: 32px; vertical-alignment: center; }
+                    TouchArea { clicked => { root.back(); } }
+                }
+                VerticalLayout {
+                    padding-top: 3px; padding-bottom: 6px; spacing: 2px;
+
+                    Label { text: root.view == 0 ? root.carrier-label : root.heading; height: 30px; font-size: 19px; font-weight: 650; }
+                }
+                if root.view == 0: ModeSummary {
+                    width: 124px; height: 28px; compact: true;
+                    profile: root.performance-profile; profile-label: root.performance-label;
+                    thermal: root.thermal-limited; rail: root.rail-active; interactive: true;
+                    clicked => { root.open("quick-controls"); }
+                }
+            }
+        }
+        scroll := Flickable {
+            x: 0px; y: 68px; width: 320px; height: 356px;
+            content-width: self.width; content-height: content.height;
+            changed content-y => { root.activity(); }
+            content := VerticalLayout {
+                x: 0px; y: 0px; width: scroll.width; height: max(self.min-height, self.preferred-height);
+                padding-left: 12px; padding-right: 12px; padding-top: 2px; padding-bottom: 12px; spacing: root.view == 0 ? 8px : 10px;
+                if root.view == 0: Rectangle {
+                    height: root.home-show-radio ? 102px : 80px;
+                    Rectangle { x: 0px; y: 0px; width: parent.width; height: 1px; background: Palette.line; }
+                    HorizontalLayout {
+                        y: 16px; height: 64px; spacing: 16px;
+                        VerticalLayout {
+                            Label { text: @tr("↓ 下载 / Mbps"); font-size: 12px; color: Palette.muted; }
+                            Label { text: root.download; height: 42px; font-size: 32px; font-weight: 650; color: Palette.accent-ink; }
+                        }
+                        VerticalLayout {
+                            Label { text: @tr("↑ 上传 / Mbps"); font-size: 12px; color: Palette.muted; }
+                            Label { text: root.upload; height: 42px; font-size: 32px; font-weight: 650; }
+                        }
+                    }
+                    TouchArea { clicked => { root.open("traffic"); } }
+                    if root.home-show-radio: Rectangle {
+                        y: 82px; height: 22px;
+                        HorizontalLayout {
+                            Label { text: root.radio-label; font-size: 12px; color: Palette.muted; }
+                            Label { text: root.signal-strength + " dBm"; font-size: 12px; horizontal-alignment: right; color: Palette.muted; }
+                        }
+                        TouchArea { clicked => { root.open("signal-live"); } }
+                    }
+                }
+                if root.view == 0 && root.home-metrics.length > 0: Rectangle {
+                    height: 56px;
+                    Rectangle { x: 0px; y: 0px; height: 1px; width: parent.width; background: Palette.line; }
+                    HorizontalLayout {
+                        y: 8px; height: 48px; spacing: 10px;
+                        for metric in root.home-metrics: Rectangle {
+                            horizontal-stretch: 1; min-width: 0px;
+                            VerticalLayout {
+                                Label { text: metric.title; height: 18px; font-size: 12px; color: Palette.muted; }
+                                Label { text: metric.subtitle; height: 28px; font-size: 19px; font-weight: 650; }
+                            }
+                            TouchArea { clicked => { root.open(metric.tag == "clients" ? "clients" : metric.tag == "month" ? "usage" : metric.tag == "battery" ? "battery-details" : "resources"); } }
+                        }
+                    }
+                }
+                if root.view == 0 && root.home-show-wifi: WifiCard {
+                    qr: root.home-wifi-qr; ready: root.home-wifi-ready;
+                    ssid: root.home-wifi-name; band: root.home-wifi-band;
+                    password: root.home-wifi-key; protected: root.home-wifi-protected;
+                    revealed: root.home-wifi-revealed; switchable: root.home-wifi-switchable;
+                    message: root.home-wifi-message;
+                    expand => { root.wifi-expand(); }
+                    toggle-password => { root.wifi-toggle-password(); }
+                    switch-band => { root.wifi-switch-band(); }
+                }
+                if root.view == 0 && root.home-show-services && root.home-services.length > 0: HorizontalLayout {
+                    height: 28px; spacing: 4px;
+                    for service in root.home-services: Rectangle {
+                        horizontal-stretch: 1; min-width: 0px;
+                        Rectangle {
+                            x: 1px; y: 12px; width: 4px; height: 4px; border-radius: 2px;
+                            background: service.tag == "on" ? Palette.good : service.tag == "attention" ? Palette.warning : service.tag == "off" ? transparent : Palette.muted;
+                            border-width: service.tag == "off" ? 1px : 0px; border-color: Palette.muted;
+                        }
+                        Label { x: 10px; width: parent.width - 12px; text: service.title; font-size: 12px; vertical-alignment: center; color: Palette.muted; }
+                        TouchArea {
+                            accessible-role: button; accessible-label: service.title + " · " + service.subtitle;
+                            clicked => { root.open(service.id); }
+                        }
+                    }
+                }
+                if root.view == 0: Rectangle { height: 16px; }
+                if root.view == 0: HorizontalLayout {
+                    height: 34px; spacing: 12px;
+                    for link in [{title: @tr("流量套餐"), id: "usage"}, {title: @tr("连接记录"), id: "history"}]: Rectangle {
+                        Label { text: link.title + " ›"; font-size: 12px; color: Palette.accent-ink; vertical-alignment: center; }
+                        TouchArea { clicked => { root.open(link.id); } }
+                    }
+                }
+                if root.view == 1: VerticalLayout {
+                    spacing: 8px;
+                    for entry in root.entries: MenuRow { title: entry.title; subtitle: entry.subtitle; tag: entry.tag; clicked => { root.open(entry.id); } }
+                }
+                if root.view == 2: VerticalLayout {
+                    spacing: 10px;
+                    if root.description != "": Paragraph { text: root.description; color: Palette.muted; }
+                    if root.readings.length > 0: ReadingTable { rows: root.readings; }
+                    for entry in root.entries: MenuRow { title: entry.title; subtitle: entry.subtitle; tag: entry.tag; clicked => { root.open(entry.id); } }
+                    if root.note != "": Paragraph { text: root.note; color: Palette.muted; font-size: 12px; }
+                    for action[index] in root.actions: TapButton { text: action; clicked => { root.action(index); } }
+                }
+                if root.view == 3: VerticalLayout {
+                    spacing: 12px;
+                    Label { text: "Language / 语言"; color: Palette.muted; font-size: 12px; }
+                    HorizontalLayout {
+                        spacing: 8px;
+                        for language in [{code: "zh-Hans", name: "简体中文"}, {code: "zh-Hant", name: "繁體中文"}]: TapButton {
+                            text: language.name; selected: root.language == language.code;
+                            clicked => { root.set-language(language.code); }
+                        }
+                    }
+                    HorizontalLayout {
+                        spacing: 8px;
+                        for language in [{code: "en", name: "English"}, {code: "ja", name: "日本語"}, {code: "ko", name: "한국어"}]: TapButton {
+                            text: language.name; selected: root.language == language.code;
+                            clicked => { root.set-language(language.code); }
+                        }
+                    }
+                    Label { text: @tr("界面主题"); color: Palette.muted; font-size: 12px; }
+                    HorizontalLayout {
+                        spacing: 10px;
+                        TapButton { text: @tr("浅色"); selected: !root.follow-system && !Palette.dark; clicked => { root.theme(false); } }
+                        TapButton { text: @tr("深色"); selected: !root.follow-system && Palette.dark; clicked => { root.theme(true); } }
+                    }
+                    TapButton { text: @tr("跟随系统"); selected: root.follow-system; clicked => { root.system-theme(); } }
+                    if root.follow-system: Paragraph { text: @tr("固件未提供系统主题，沿用当前浅色或深色设置。"); color: Palette.muted; font-size: 12px; }
+                    Label { text: @tr("强调色"); color: Palette.muted; font-size: 12px; }
+                    HorizontalLayout {
+                        spacing: 5px;
+                        for swatch in [
+                            { color: #2563eb, hex: "#2563eb" }, { color: #0891b2, hex: "#0891b2" },
+                            { color: #258052, hex: "#258052" }, { color: #d97706, hex: "#d97706" },
+                            { color: #db3d70, hex: "#db3d70" }, { color: #64748b, hex: "#64748b" }
+                        ]: Rectangle {
+                            height: 44px; border-radius: 8px; background: swatch.color;
+                            border-width: swatch.color == Palette.accent ? 3px : 0px; border-color: Palette.text;
+                            TouchArea { clicked => { root.accent(swatch.hex); } }
+                        }
+                    }
+                    MenuRow { title: @tr("自定义颜色"); subtitle: root.accent-hex; clicked => { root.edit("accent"); } }
+                    Label { text: @tr("屏幕亮度  ") + root.brightness + "%"; color: Palette.muted; font-size: 12px; }
+                    Brightness { value: root.brightness; changed(value) => { root.set-brightness(value); } }
+                    MenuRow { title: @tr("自动熄屏"); subtitle: root.sleep-label; clicked => { root.cycle-sleep(); } }
+                    Label { text: @tr("首页布局"); color: Palette.muted; font-size: 12px; }
+                    for setting in [
+                        {key: "radio", title: @tr("信号详情"), enabled: root.home-show-radio},
+                        {key: "wifi", title: @tr("Wi-Fi 连接卡片"), enabled: root.home-show-wifi},
+                        {key: "services", title: @tr("服务摘要"), enabled: root.home-show-services},
+                        {key: "tailscale", title: "Tailscale", enabled: root.home-show-tailscale},
+                        {key: "wireguard", title: "WireGuard", enabled: root.home-show-wireguard},
+                        {key: "mihomo", title: "Mihomo", enabled: root.home-show-mihomo}
+                    ]: MenuRow { title: setting.title; subtitle: setting.enabled ? @tr("显示") : @tr("隐藏"); clicked => { root.home-toggle(setting.key); } }
+                    for name[index] in root.home-metric-choices: MenuRow {
+                        title: @tr("快捷指标") + " " + (index + 1); subtitle: name;
+                        clicked => { root.home-metric(index); }
+                    }
+                    Paragraph { text: @tr("隐藏仅影响首页显示，不会停止服务。"); color: Palette.muted; font-size: 12px; }
+                    TapButton { text: @tr("熄屏"); clicked => { root.power(); } }
+                    Label { text: @tr("明暗、配色与亮度即时生效。"); color: Palette.muted; font-size: 12px; }
+                }
+                if root.view == 4: VerticalLayout {
+                    spacing: 10px;
+                    Rectangle {
+                        height: 108px; background: Palette.surface; border-radius: 12px;
+                        VerticalLayout {
+                            padding: 16px; spacing: 8px;
+                            Label { text: @tr("U60   →   节点小宝   →   目标"); font-size: 13px; color: Palette.accent-ink; }
+                            Label { text: root.tailnet-status; font-size: 20px; font-weight: 600; }
+                            Label { text: @tr("本机服务与隧道状态"); font-size: 12px; color: Palette.muted; }
+                        }
+                    }
+                    if root.tailnet-readings.length > 0: ReadingTable { rows: root.tailnet-readings; }
+                    if root.demo: TapButton { text: @tr("切换演示场景"); clicked => { root.scenario(); } }
+                    if !root.demo: TapButton { text: @tr("刷新连接状态"); clicked => { root.refresh(); } }
+                    Paragraph { text: root.demo ? @tr("当前读数为演示数据。") : root.probe-note; color: Palette.muted; font-size: 13px; }
+                }
+                if root.view == 6: VerticalLayout {
+                    spacing: 12px;
+                    Label { text: @tr("后台连接 · ") + root.connection-label; font-size: 18px; }
+                    Paragraph { text: @tr("机身屏幕使用本机后台账号连接。也可以输入后台密码重新登录。"); color: Palette.muted; }
+                    TapButton { text: @tr("输入密码登录"); selected: true; clicked => { root.edit("agent-login"); } }
+                    TapButton { text: @tr("重新连接"); clicked => { root.refresh(); } }
+                    TapButton { text: @tr("断开并清除本地会话"); clicked => { root.agent-forget(); } }
+                }
+                if root.view == 5: VerticalLayout {
+                    spacing: 12px;
+                    MenuRow { title: @tr("密码解锁"); subtitle: root.pin-enabled ? @tr("已开启 · 6–12 位数字密码") : @tr("未开启 · 仅长按解锁"); clicked => { root.pin-setup(false); } }
+                    TapButton { text: root.pin-enabled ? @tr("修改解锁密码") : @tr("设置解锁密码"); clicked => { root.pin-setup(false); } }
+                    if root.pin-enabled: TapButton { text: @tr("关闭密码解锁"); clicked => { root.pin-setup(true); } }
+                    TapButton { text: @tr("立即锁屏"); clicked => { root.lock-now(); } }
+                    Paragraph { text: @tr("启动与熄屏后自动锁定。开启密码后，更改或关闭密码需要先验证当前密码。"); font-size: 14px; color: Palette.muted; }
+                    if root.pin-message != "": Paragraph { text: root.pin-message; color: Palette.good; }
+                }
+                if root.view == 7: feature-page := VerticalLayout {
+                    property <length> list-top: self.y + feature-list.y;
+                    changed list-top => { if !root.data-replaces-items { root.feature-list-top = self.list-top; } }
+                    spacing: 8px;
+                    if root.feature-notice != "": Paragraph { text: root.feature-notice; color: Palette.warning; font-size: 14px; }
+                    if root.feature-has-qr && root.feature-qr-caption != "": Paragraph {
+                        text: root.feature-qr-caption; font-size: 17px; font-weight: 600; horizontal-alignment: center;
+                    }
+                    if root.feature-has-qr: HorizontalLayout {
+                        alignment: center;
+                        Image { source: root.feature-qr; width: 256px; height: 256px; image-fit: contain; horizontal-stretch: 0; }
+                    }
+                    for trend[index] in root.trends: VerticalLayout {
+                        spacing: 8px;
+                        TrendCard { data: trend; }
+                        if index == 0 && root.meters.length > 0: MeterGrid { rows: root.meters; }
+                    }
+                    if root.trends.length == 0 && root.meters.length > 0: MeterGrid { rows: root.meters; }
+                    if root.data-rows.length > 0: data-table := DataTable {
+                        rows: root.data-rows; name: root.data-name; first: root.data-first; second: root.data-second;
+                        property <length> list-top: feature-page.y + self.y + 38px;
+                        changed list-top => { if root.data-replaces-items { root.feature-list-top = self.list-top; } }
+                        selected(target) => { root.open("feature-item:" + target); }
+                    }
+                    if root.readings.length > 0: ReadingTable { rows: root.readings; }
+                    if root.feature-content != "": Rectangle {
+                        height: body.preferred-height;
+                        background: Palette.surface; border-radius: 8px;
+                        body := VerticalLayout {
+                            padding: 12px;
+                            Paragraph { text: root.feature-content; font-size: 16px; }
+                        }
+                    }
+                    if root.operating-page != "": OperatingControls {
+                        page: root.operating-page; enabled: !root.feature-busy && (root.connection-live || root.demo);
+                        airplane: root.control-airplane; profile: root.control-profile;
+                        balanced-enabled: root.control-balanced; performance-enabled: root.control-performance; saving-enabled: root.control-saving;
+                        profile-applied: root.control-applied; thermal: root.control-thermal; rail: root.control-rail;
+                        bandwidth: root.control-bandwidth; bandwidth-enabled: root.control-bandwidth-enabled;
+                        change(key,value) => { root.operating-change(key,value); }
+                        edit-bandwidth => { root.operating-bandwidth(); }
+                        open(id) => { root.open(id); }
+                    }
+                    if root.operating-page == "": VerticalLayout {
+                    for field in root.feature-fields: MenuRow {
+                        title: field.title; subtitle: field.subtitle; tag: field.tag;
+                        clicked => { root.feature-edit(field.index); }
+                    }
+                    }
+                    feature-list := VerticalLayout {
+                        spacing: 8px;
+                        if !root.data-replaces-items: VerticalLayout {
+                            spacing: 8px;
+                            for entry in root.entries: MenuRow { title: entry.title; subtitle: entry.subtitle; tag: entry.tag; clicked => { root.open(entry.id); } }
+                        }
+                    }
+                    for action[index] in root.feature-actions: TapButton {
+                        text: action.label; interactive: action.enabled && !root.feature-busy;
+                        clicked => { root.feature-action(action.index); }
+                    }
+                    if root.feature-can-refresh: TapButton { text: @tr("刷新状态"); interactive: !root.feature-refreshing; clicked => { root.feature-refresh(); } }
+                    if root.trends.length > 0: Paragraph { text: @tr("本页最近 2 分钟的观察记录；断线或暂停处留空。"); font-size: 12px; color: Palette.muted; }
+                    if root.note != "": Paragraph { text: root.note; font-size: 13px; color: Palette.muted; }
+                }
+            }
+        }
+        GlassPanel {
+            x: 0px; y: 424px; height: 56px; width: parent.width;
+            translucent: true; border-radius: 0px;
+            HorizontalLayout {
+                for name[index] in [@tr("状态"), @tr("连接"), @tr("管理")]: Rectangle {
+                    horizontal-stretch: 1;
+                    if root.tab == index: Rectangle {
+                        x: 0px; y: 1px; width: parent.width; height: 55px; border-radius: 0px;
+                        background: Palette.accent.with-alpha(Palette.dark ? 0.18 : 0.09);
+                        border-width: 1px; border-color: Palette.accent.with-alpha(0.2);
+                    }
+                    if root.tab == index: Rectangle { x: (parent.width - 24px) / 2; y: 0px; width: 24px; height: 2px; background: Palette.accent; }
+                    NavigationIcon { x: (parent.width - 20px) / 2; y: 8px; kind: index == 2 ? 3 : index; selected: root.tab == index; }
+                    Label { x: 0px; y: 32px; width: parent.width; height: 19px; text: name; color: root.tab == index ? Palette.accent-ink : Palette.muted; font-size: root.language == "ja" ? 12px : 13px; font-weight: root.tab == index ? 650 : 500; horizontal-alignment: center; }
+                    TouchArea { clicked => { root.navigate(index); } }
+                }
+            }
+        }
+        if root.wifi-expanded && root.home-wifi-ready: AmbientBackground {
+            y: 28px; width: parent.width; height: parent.height - 28px;
+            TouchArea { }
+            Label { x: 16px; y: 12px; width: 288px; height: 48px; text: root.home-wifi-name; font-size: 18px; font-weight: 600; wrap: char-wrap; horizontal-alignment: center; vertical-alignment: center; }
+            Label { x: 16px; y: 65px; width: 288px; text: root.home-wifi-band; font-size: 13px; color: Palette.muted; horizontal-alignment: center; }
+            Image { x: 32px; y: 96px; width: 256px; height: 256px; source: root.home-wifi-qr-large; image-fit: contain; }
+            TapButton { x: 16px; y: 392px; width: 288px; height: 44px; text: @tr("返回"); clicked => { root.wifi-close(); } }
+        }
+        if root.choice-visible: AmbientBackground {
+            width: parent.width; height: parent.height;
+            TouchArea { }
+            Label { x: 12px; y: 12px; width: 296px; height: 36px; text: root.choice-title; font-size: 22px; font-weight: 650; }
+            Flickable {
+                x: 12px; y: 58px; width: 296px; height: 352px; content-width: self.width; content-height: options.height;
+                options := VerticalLayout {
+                    x: 0px; y: 0px; width: 296px; height: max(self.min-height, self.preferred-height); spacing: 8px;
+                    for choice[index] in root.choices: MenuRow { title: choice.title; subtitle: choice.subtitle; tag: choice.tag; clicked => { root.choose(index); } }
+                }
+            }
+            TapButton { x: 12px; y: 424px; width: 296px; height: 44px; text: @tr("取消"); clicked => { root.choice-cancel(); } }
+        }
+        if root.confirm-visible: AmbientBackground {
+            width: parent.width; height: parent.height;
+            TouchArea { }
+            GlassPanel { x: 8px; y: 8px; width: 304px; height: 406px; }
+            Rectangle { x: 20px; y: 20px; width: 3px; height: 20px; border-radius: 1.5px; background: Palette.accent; }
+            Label { x: 32px; y: 12px; width: 264px; height: 36px; text: @tr("确认操作"); font-size: 22px; font-weight: 650; }
+            Flickable {
+                x: 20px; y: 58px; width: 280px; height: root.confirm-phrase == "" ? 340px : 280px;
+                content-width: self.width; content-height: confirmation-text.height;
+                confirmation-text := Paragraph { x: 0px; y: 0px; width: 280px; text: root.confirm-body; font-size: 16px; }
+            }
+            if root.confirm-phrase != "": MenuRow {
+                x: 12px; y: 342px; width: 296px;
+                title: @tr("输入 ") + root.confirm-phrase + @tr(" 确认"); subtitle: root.confirm-word;
+                clicked => { root.edit("confirmation"); }
+            }
+            HorizontalLayout {
+                x: 12px; y: 424px; width: 296px; height: 44px; spacing: 8px;
+                TapButton { text: @tr("取消"); clicked => { root.confirm-cancel(); } }
+                TapButton { text: @tr("确认执行"); selected: true; interactive: root.confirm-word == root.confirm-phrase; clicked => { root.confirm-accept(); } }
+            }
+        }
+        if root.message != "": Rectangle {
+            width: parent.width; height: parent.height; background: #000000a0;
+            TouchArea { }
+            GlassPanel {
+                x: 16px; y: (parent.height - self.height) / 2; width: 288px;
+                height: message-layout.preferred-height; border-radius: 18px;
+                message-layout := VerticalLayout {
+                    padding: 18px; spacing: 16px;
+                    Label { height: 28px; text: @tr("提示"); font-size: 20px; font-weight: 600; }
+                    Flickable {
+                        height: min(292px, message-text.preferred-height);
+                        content-width: self.width; content-height: message-text.height;
+                        message-text := Paragraph { x: 0px; y: 0px; width: parent.width; text: root.message; }
+                    }
+                    TapButton { height: 44px; text: @tr("知道了"); selected: true; clicked => { root.message = ""; } }
+                }
+            }
+        }
+        if root.editor-visible && !root.locked && !root.pin-visible: TextEditor {
+            width: parent.width; height: parent.height;
+            title: root.editor-title; hint: root.editor-hint; error: root.editor-error;
+            value <=> root.editor-value; secret: root.editor-secret; layout <=> root.editor-layout;
+            multiline: root.editor-multiline;
+            key(value) => { root.editor-key(value); }
+            submit => { root.editor-submit(); }
+            cancel => { root.editor-cancel(); }
+            activity => { root.activity(); }
+        }
+        if root.locked && !root.pin-visible: LockScreen {
+            airplane: root.airplane-state == 1; profile: root.performance-profile; profile-label: root.performance-label;
+            thermal: root.thermal-limited; rail: root.rail-active;
+            width: parent.width; height: parent.height;
+            pin-enabled: root.pin-enabled; awake: !root.asleep; progress: root.hold-progress;
+            clock: root.lock-clock; date: root.lock-date;
+            download-path: root.lock-download-path; upload-path: root.lock-upload-path; samples: root.lock-samples;
+            battery: root.battery; network-online: root.network-online;
+            battery-level: root.battery-level; charging: root.charging;
+            external-power: root.external-power; bypass-power: root.bypass-power; power-label: root.power-label;
+            network-badge: root.network-badge; signal-level: root.signal-level;
+            connection-label: root.connection-live ? "" : root.connection-label; network-mode: root.network-mode;
+            wifi-enabled: root.wifi-enabled; client-count: root.client-count;
+            carrier-label: root.carrier-label; cell-info: root.cell-info;
+            download: root.download; upload: root.upload;
+            hold-start => { root.hold-start(); }
+            hold-tick => { root.hold-tick(); }
+            hold-end(inside) => { root.hold-end(inside); }
+            hold-cancel => { root.hold-cancel(); }
+            swipe-unlock(done) => { root.swipe-unlock(done); }
+        }
+        if root.pin-visible: PinPad {
+            width: parent.width; height: parent.height;
+            title: root.pin-title; message: root.pin-message; masked: root.pin-masked;
+            busy: root.pin-busy; remaining: root.pin-remaining;
+            digit(n) => { root.pin-digit(n); }
+            backspace => { root.pin-backspace(); }
+            submit => { root.pin-submit(); }
+            cancel => { root.pin-cancel(); }
+        }
+        if root.asleep: Rectangle {
+            width: parent.width; height: parent.height; background: #000000;
+            TouchArea { clicked => { root.power(); } }
+        }
+    }
+}

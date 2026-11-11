@@ -1,0 +1,181 @@
+import { Palette, Label, TapButton, AmbientBackground } from "components.slint";
+import { ModeSummary } from "operating.slint";
+import { StatusBar } from "status.slint";
+
+export component LockScreen inherits AmbientBackground {
+    in property <bool> airplane;
+    in property <string> profile;
+    in property <string> profile-label;
+    in property <bool> thermal;
+    in property <bool> rail;
+    in property <bool> pin-enabled;
+    in property <bool> awake: true;
+    in property <float> progress;
+    in property <string> clock;
+    in property <string> date;
+    in property <string> battery;
+    in property <int> battery-level;
+    in property <bool> charging;
+    in property <bool> external-power;
+    in property <bool> bypass-power;
+    in property <bool> wifi-enabled;
+    in property <string> power-label;
+    in property <string> network-badge;
+    in property <int> signal-level;
+    in property <string> connection-label;
+    in property <string> network-mode;
+    in property <string> carrier-label;
+    in property <string> cell-info;
+    in property <string> client-count;
+    in property <bool> network-online;
+    in property <string> download;
+    in property <string> upload;
+    in property <string> download-path;
+    in property <string> upload-path;
+    in property <int> samples;
+    callback hold-start;
+    callback hold-tick;
+    callback hold-end(bool);
+    callback hold-cancel;
+    // 上滑解锁（替代原来的指纹长按 1 秒）
+    callback swipe-unlock(bool);
+    property <length> swipe-from: 0px;
+    property <bool> swipe-active: false;
+    background: Palette.bg;
+    // 整屏上滑：手指向上拖过 48px 即解锁
+    swipe-area := TouchArea {
+        x: 0px; y: 0px; width: parent.width; height: parent.height;
+        pointer-event(event) => {
+            if (event.kind == PointerEventKind.down) {
+                root.swipe-from = self.mouse-y;
+                root.swipe-active = true;
+            } else if (event.kind == PointerEventKind.up) {
+                root.swipe-unlock(root.swipe-active && (root.swipe-from - self.mouse-y) >= 48px);
+                root.swipe-active = false;
+            } else if (event.kind == PointerEventKind.cancel) {
+                root.swipe-active = false;
+            }
+        }
+    }
+    StatusBar {
+        x: 0px; y: 0px; width: parent.width; awake: root.awake; locked: true;
+        connection: root.connection-label; network: root.network-badge; signal-level: root.signal-level;
+        wifi-enabled: root.wifi-enabled;
+        battery: root.battery; battery-level: root.battery-level;
+        charging: root.charging; external-power: root.external-power; bypass-power: root.bypass-power;
+        power-label: root.power-label; airplane: root.airplane; profile: root.profile; thermal: root.thermal; rail: root.rail;
+    }
+    Label {
+        x: 24px; y: 40px; width: parent.width - 48px; height: 65px;
+        text: root.clock; font-size: 48px; font-weight: 450; letter-spacing: -1px;
+        horizontal-alignment: center; vertical-alignment: center;
+    }
+    Label {
+        x: 24px; y: 107px; width: parent.width - 48px; height: 23px;
+        text: root.date; font-size: 12px; color: Palette.muted; horizontal-alignment: center; vertical-alignment: center;
+    }
+    ModeSummary {
+        x: 24px; y: 137px; width: parent.width - 48px; height: 26px;
+        airplane: root.airplane; profile: root.profile; profile-label: root.profile-label;
+        thermal: root.thermal; rail: root.rail;
+    }
+    HorizontalLayout {
+        x: 24px; y: 173px; width: parent.width - 48px; height: 22px; spacing: 5px;
+        Label { text: root.airplane ? @tr("蜂窝网络已关闭") : root.carrier-label + " · " + root.network-mode; min-width: 0px; font-size: 12px; vertical-alignment: center; }
+        Rectangle {
+            width: 4px;
+            Rectangle { y: 9px; width: 4px; height: 4px; border-radius: 2px; background: root.network-online ? Palette.good : Palette.warning; }
+        }
+        Label {
+            text: root.airplane && root.wifi-enabled ? @tr("Wi-Fi 可用") : root.network-online ? @tr("已联网") : @tr("未联网"); width: self.preferred-width;
+            font-size: 12px; color: Palette.muted; vertical-alignment: center;
+        }
+    }
+    Label {
+        x: 24px; y: 197px; width: parent.width - 48px; height: 15px;
+        text: root.cell-info; font-size: 10px; color: Palette.muted;
+        horizontal-alignment: start; vertical-alignment: center;
+    }
+    HorizontalLayout {
+        x: 24px; y: 218px; width: parent.width - 48px; height: 58px; spacing: 16px;
+        VerticalLayout {
+            spacing: 5px;
+            Label { text: @tr("↓ 下载 / Mbps"); height: 18px; font-size: 12px; color: Palette.muted; }
+            Label { text: root.download; height: 35px; font-size: 29px; font-weight: 650; color: Palette.accent-ink; }
+        }
+        VerticalLayout {
+            spacing: 5px;
+            Label { text: @tr("↑ 上传 / Mbps"); height: 18px; font-size: 12px; color: Palette.muted; }
+            Label { text: root.upload; height: 35px; font-size: 29px; font-weight: 650; }
+        }
+    }
+    Rectangle {
+        x: 24px; y: 284px; width: parent.width - 48px; height: 54px; clip: true;
+        for level in [0,1,2]: Rectangle { y: 3px + level * 24px; width: parent.width; height: 1px; background: Palette.line; }
+        if !root.airplane && root.download-path != "": Path {
+            width: parent.width; height: parent.height; commands: root.download-path;
+            viewbox-width: 272; viewbox-height: 54; fit: fill;
+            stroke: Palette.accent-ink; stroke-width: 1.5px; stroke-line-cap: round; stroke-line-join: round;
+        }
+        if !root.airplane && root.upload-path != "": Path {
+            width: parent.width; height: parent.height; commands: root.upload-path;
+            viewbox-width: 272; viewbox-height: 54; fit: fill;
+            stroke: Palette.good; stroke-width: 1.5px; stroke-line-cap: round; stroke-line-join: round;
+        }
+        if root.airplane || root.samples < 2: Label {
+            text: root.airplane ? @tr("蜂窝流量已暂停") : @tr("正在积累趋势"); font-size: 12px; color: Palette.muted; horizontal-alignment: center; vertical-alignment: center;
+        }
+    }
+    Label {
+        x: 16px; y: 344px; width: parent.width - 32px; height: 22px;
+        text: @tr("{0} 台设备", root.client-count) + " · " + root.battery + " · " + root.power-label;
+        color: Palette.muted; font-size: 12px; horizontal-alignment: center; vertical-alignment: center;
+    }
+    // 上滑解锁指示：按 E5 锁屏底部的样式 —— 细箭头 + 小字 + 浅色横条
+    Path {
+        x: (parent.width - 22px) / 2; y: 380px; width: 22px; height: 20px;
+        commands: "M 3 16 L 11 7 L 19 16";
+        stroke: Palette.accent-ink; stroke-width: 2px; stroke-line-cap: round; stroke-line-join: round;
+    }
+    Label {
+        x: 16px; y: 406px; width: parent.width - 32px; height: 16px;
+        text: @tr("从下方向上滑动解锁"); font-size: 10px; color: Palette.muted;
+        horizontal-alignment: center; vertical-alignment: center;
+    }
+    Rectangle {
+        x: (parent.width - 72px) / 2; y: 430px; width: 72px; height: 3px;
+        border-radius: 2px; background: Palette.muted.with-alpha(0.45);
+    }
+    if root.pin-enabled: Label {
+        x: 16px; y: 466px; width: parent.width - 32px; height: 14px;
+        text: @tr("查看设置与操作需要密码"); font-size: 11px; color: Palette.muted; horizontal-alignment: center;
+    }
+}
+
+export component PinPad inherits AmbientBackground {
+    in property <string> title;
+    in property <string> message;
+    in property <string> masked;
+    in property <bool> busy;
+    in property <int> remaining;
+    callback digit(int);
+    callback backspace;
+    callback submit;
+    callback cancel;
+    background: Palette.bg;
+    TouchArea { }
+    Label { x: 16px; y: 30px; width: parent.width - 32px; height: 36px; text: root.title; font-size: 22px; font-weight: 600; horizontal-alignment: center; }
+    Label { x: 20px; y: 76px; width: parent.width - 40px; height: 44px; text: root.remaining > 0 ? root.remaining + @tr(" 秒后可以重试") : root.message; font-size: 14px; color: Palette.muted; horizontal-alignment: center; wrap: word-wrap; }
+    Label { x: 16px; y: 126px; width: parent.width - 32px; height: 36px; text: root.masked == "" ? "—" : root.masked; font-size: 21px; color: Palette.accent-ink; horizontal-alignment: center; letter-spacing: 2px; }
+    for digit in [1,2,3,4,5,6,7,8,9]: TapButton {
+        x: 16px + mod(digit - 1, 3) * 100px;
+        y: 180px + floor((digit - 1) / 3) * 58px;
+        width: 88px; height: 50px; text: "" + digit; text-size: 24px;
+        interactive: !root.busy && root.remaining == 0;
+        clicked => { root.digit(digit); }
+    }
+    TapButton { x: 16px; y: 354px; width: 88px; height: 50px; text: @tr("删除"); interactive: !root.busy; clicked => { root.backspace(); } }
+    TapButton { x: 116px; y: 354px; width: 88px; height: 50px; text: "0"; text-size: 24px; interactive: !root.busy && root.remaining == 0; clicked => { root.digit(0); } }
+    TapButton { x: 216px; y: 354px; width: 88px; height: 50px; text: root.busy ? @tr("处理中") : @tr("确认"); selected: true; interactive: !root.busy && root.remaining == 0; clicked => { root.submit(); } }
+    TapButton { x: 16px; y: 424px; width: 288px; height: 44px; text: @tr("取消"); clicked => { root.cancel(); } }
+}
