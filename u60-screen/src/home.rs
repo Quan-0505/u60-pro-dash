@@ -1,5 +1,5 @@
-//! Visible-home summaries. Reads stop when hidden, locked or asleep. Display
-//! preferences never change the corresponding service's operating state.
+//! Summaries for the visible home and lock screens. Reads stop while asleep.
+//! Display preferences never change the corresponding service's operating state.
 use crate::{
     MenuEntry, Screen,
     agent::{Agent, Error, Request, Snapshot},
@@ -120,57 +120,64 @@ impl Summary {
         }
         true
     }
-    pub fn tick(&mut self, agent: &Agent, active: bool, prefs: &Home, snapshot: &Snapshot) {
+    pub fn tick(&mut self, agent: &Agent, home: Option<&Home>, lock_usage: bool, snapshot: &Snapshot) {
         self.health = snapshot.get("health").cloned().unwrap_or(Value::Null);
-        if !active {
+        if home.is_none() && !lock_usage {
             self.pending.clear();
             self.values.clear();
             self.due.clear();
             return;
         }
-        if let Some((id, path)) = self.next_request(prefs, Instant::now()) {
+        if let Some((id, path)) = self.next_request(home, lock_usage, Instant::now()) {
             if let Err(e) = agent.call(id, Request::get(path)) {
                 self.receive(id, Err(e));
             }
         }
     }
-    fn next_request(&mut self, prefs: &Home, now: Instant) -> Option<(u64, &'static str)> {
+    fn next_request(
+        &mut self,
+        home: Option<&Home>,
+        lock_usage: bool,
+        now: Instant,
+    ) -> Option<(u64, &'static str)> {
         self.pending
             .retain(|_, (_, at)| now.saturating_duration_since(*at) < Duration::from_secs(35));
         if !self.pending.is_empty() {
             return None;
         }
-        let metrics = [&prefs.metric_1, &prefs.metric_2, &prefs.metric_3];
+        let wants_metric = |key: &str| {
+            home.is_some_and(|prefs| [&prefs.metric_1, &prefs.metric_2, &prefs.metric_3].iter().any(|metric| metric.as_str() == key))
+        };
         for (key, path, wanted) in [
             (
                 "tailscale",
                 "/api/nodebaby/status",
-                prefs.show_services && prefs.show_tailscale,
+                home.is_some_and(|prefs| prefs.show_services && prefs.show_tailscale),
             ),
             (
                 "usage",
                 "/api/data-usage",
-                metrics.iter().any(|k| k.as_str() == "month"),
+                lock_usage || wants_metric("month"),
             ),
             (
                 "memory",
                 "/api/memory",
-                metrics.iter().any(|k| k.as_str() == "memory"),
+                wants_metric("memory"),
             ),
             (
                 "system",
                 "/api/device/system",
-                metrics.iter().any(|k| k.as_str() == "uptime"),
+                wants_metric("uptime"),
             ),
             (
                 "wireguard",
                 "/api/vpn/wireguard",
-                prefs.show_services && prefs.show_wireguard,
+                home.is_some_and(|prefs| prefs.show_services && prefs.show_wireguard),
             ),
             (
                 "mihomo",
                 "/api/ufi-mihomo/status",
-                prefs.show_services && prefs.show_mihomo,
+                home.is_some_and(|prefs| prefs.show_services && prefs.show_mihomo),
             ),
         ] {
             if !wanted {
@@ -189,6 +196,15 @@ impl Summary {
         }
         None
     }
+    pub fn usage(&self, period: &str) -> String {
+        use crate::agent::model::{bytes, number};
+        let v = &self.value("usage")[period];
+        number(&v["rx_bytes"])
+            .zip(number(&v["tx_bytes"]))
+            .map(|(rx, tx)| bytes(rx + tx))
+            .unwrap_or_else(|| "—".into())
+    }
+
     pub fn render(&self, ui: &Screen, prefs: &Home, _snapshot: Option<&Snapshot>) {
         use crate::agent::model::number;
         let demo = ui.get_demo();
@@ -221,13 +237,7 @@ impl Summary {
                     .reduce(f64::max)
                     .map(|n| format!("{n:.0}°C"))
                     .unwrap_or("—".into()),
-                "month" => {
-                    let v = self.value("usage");
-                    number(&v["month"]["rx_bytes"])
-                        .zip(number(&v["month"]["tx_bytes"]))
-                        .map(|(a, b)| crate::agent::model::bytes(a + b))
-                        .unwrap_or("—".into())
-                }
+                "month" => self.usage("month"),
                 "memory" => {
                     let v = self.value("memory");
                     number(&v["used_kb"])
@@ -356,17 +366,17 @@ mod tests {
         };
         let mut summary = Summary::default();
         let now = Instant::now();
-        let (ts, path) = summary.next_request(&prefs, now).unwrap();
+        let (ts, path) = summary.next_request(Some(&prefs), false, now).unwrap();
         assert_eq!(path, "/api/nodebaby/status");
         assert!(
-            summary.next_request(&prefs, now).is_none(),
+            summary.next_request(Some(&prefs), false, now).is_none(),
             "one request in flight"
         );
         summary.receive(ts, Err(Error::Busy(1)));
-        let (wg, path) = summary.next_request(&prefs, now).unwrap();
+        let (wg, path) = summary.next_request(Some(&prefs), false, now).unwrap();
         assert_eq!(path, "/api/vpn/wireguard");
         summary.receive(wg, Ok(json!({"active":false})));
-        let (proxy, path) = summary.next_request(&prefs, now).unwrap();
+        let (proxy, path) = summary.next_request(Some(&prefs), false, now).unwrap();
         assert_eq!(path, "/api/ufi-mihomo/status");
         summary.receive(proxy, Ok(json!({"running":true})));
         assert_eq!(
@@ -374,7 +384,7 @@ mod tests {
             ServiceState::Running
         );
         let (retry, path) = summary
-            .next_request(&prefs, now + Duration::from_secs(2))
+            .next_request(Some(&prefs), false, now + Duration::from_secs(2))
             .unwrap();
         assert_eq!(path, "/api/nodebaby/status");
         assert!(
@@ -393,7 +403,7 @@ mod tests {
         );
         assert!(
             summary
-                .next_request(&prefs, now + Duration::from_secs(3))
+                .next_request(Some(&prefs), false, now + Duration::from_secs(3))
                 .is_none()
         );
     }

@@ -334,3 +334,6 @@ msgstr "Home layout"
 
 msgid "高铁优化"
 msgstr "High-speed rail optimization"
+
+msgid "今日流量 {0} · 本月流量 {1}"
+msgstr "Today {0} · This month {1}"

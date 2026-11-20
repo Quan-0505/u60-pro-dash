@@ -118,6 +118,8 @@ export component Screen inherits Window {
     in-out property <string> radio-label: "5G SA · n78";
     in-out property <string> signal-strength: "−86";
     in-out property <string> client-count: "3";
+    in-out property <string> lock-day-usage: "—";
+    in-out property <string> lock-month-usage: "—";
     in-out property <string> traffic-total: "2.38 GB";
     in-out property <string> tailnet-status: @tr("已连接");
     in-out property <[Reading]> tailnet-readings;
@@ -617,6 +619,7 @@ export component Screen inherits Window {
             connection-label: root.connection-live ? "" : root.connection-label; network-mode: root.network-mode;
             wifi-enabled: root.wifi-enabled; client-count: root.client-count;
             carrier-label: root.carrier-label; cell-info: root.cell-info;
+            day-usage: root.lock-day-usage; month-usage: root.lock-month-usage;
             download: root.download; upload: root.upload;
             hold-start => { root.hold-start(); }
             hold-tick => { root.hold-tick(); }

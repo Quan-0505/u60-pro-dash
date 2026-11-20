@@ -26,6 +26,8 @@ export component LockScreen inherits AmbientBackground {
     in property <string> network-mode;
     in property <string> carrier-label;
     in property <string> cell-info;
+    in property <string> day-usage;
+    in property <string> month-usage;
     in property <string> client-count;
     in property <bool> network-online;
     in property <string> download;
@@ -127,27 +129,32 @@ export component LockScreen inherits AmbientBackground {
         }
     }
     Label {
-        x: 16px; y: 344px; width: parent.width - 32px; height: 22px;
+        x: 16px; y: 339px; width: parent.width - 32px; height: 18px;
+        text: @tr("今日流量 {0} · 本月流量 {1}", root.day-usage, root.month-usage);
+        color: Palette.muted; font-size: 11px; horizontal-alignment: center; vertical-alignment: center;
+    }
+    Label {
+        x: 16px; y: 357px; width: parent.width - 32px; height: 20px;
         text: @tr("{0} 台设备", root.client-count) + " · " + root.battery + " · " + root.power-label;
         color: Palette.muted; font-size: 12px; horizontal-alignment: center; vertical-alignment: center;
     }
     // 上滑解锁指示：按 E5 锁屏底部的样式 —— 细箭头 + 小字 + 浅色横条
     Path {
-        x: (parent.width - 22px) / 2; y: 380px; width: 22px; height: 20px;
+        x: (parent.width - 22px) / 2; y: parent.height - 68px; width: 22px; height: 20px;
         commands: "M 3 16 L 11 7 L 19 16";
         stroke: Palette.accent-ink; stroke-width: 2px; stroke-line-cap: round; stroke-line-join: round;
     }
     Label {
-        x: 16px; y: 406px; width: parent.width - 32px; height: 16px;
+        x: 16px; y: parent.height - 42px; width: parent.width - 32px; height: 16px;
         text: @tr("从下方向上滑动解锁"); font-size: 10px; color: Palette.muted;
         horizontal-alignment: center; vertical-alignment: center;
     }
     Rectangle {
-        x: (parent.width - 72px) / 2; y: 430px; width: 72px; height: 3px;
+        x: (parent.width - 72px) / 2; y: parent.height - 18px; width: 72px; height: 3px;
         border-radius: 2px; background: Palette.muted.with-alpha(0.45);
     }
     if root.pin-enabled: Label {
-        x: 16px; y: 466px; width: parent.width - 32px; height: 14px;
+        x: 16px; y: 387px; width: parent.width - 32px; height: 14px;
         text: @tr("查看设置与操作需要密码"); font-size: 11px; color: Palette.muted; horizontal-alignment: center;
     }
 }

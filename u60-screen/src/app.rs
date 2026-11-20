@@ -817,15 +817,20 @@ impl State {
         if active && ui.get_view() == 7 {
             self.features.stream(&snapshot);
         }
+        let summaries_live =
+            snapshot.authenticated && snapshot.status == crate::agent::Status::Live;
+        let home_visible = active && ui.get_view() == 0;
+        let lock_visible = !ui.get_asleep() && self.security.locked && !ui.get_pin_visible();
         self.home.tick(
             agent,
-            active
-                && snapshot.authenticated
-                && snapshot.status == crate::agent::Status::Live
-                && ui.get_view() == 0,
-            &self.prefs.home,
+            (summaries_live && home_visible).then_some(&self.prefs.home),
+            summaries_live && lock_visible,
             &snapshot,
         );
+        if lock_visible {
+            ui.set_lock_day_usage(self.home.usage("day").into());
+            ui.set_lock_month_usage(self.home.usage("month").into());
+        }
         self.render_features(ui);
         ui.set_tailnet_status(self.network.label().into());
         ui.set_tailnet_online(self.network.online());
