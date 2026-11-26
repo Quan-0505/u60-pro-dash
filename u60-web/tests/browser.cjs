@@ -11,8 +11,12 @@ const wifi = {
   ssid_5g: "Test hotspot",
   key_2g: "test-only-wifi",
   key_5g: "test-only-wifi",
-  encryption_2g: "psk2",
-  encryption_5g: "psk2",
+  encryption_2g: "psk2+ccmp",
+  encryption_5g: "psk2+ccmp",
+  channel_2g: "0",
+  channel_5g: "0",
+  txpower_2g: "100",
+  txpower_5g: "100",
   hidden_2g: "0",
   hidden_5g: "0",
   htmode_2g: "HT40",
@@ -272,7 +276,10 @@ const streams = {
       errors = [],
       writes = [];
     let ignoreWrite = false,
-      modeFailure = "";
+      modeFailure = "",
+      wifiApplyJob = { job_id: 0, state: "idle", elapsed_ms: 0, error: null },
+      wifiPollDrops = 0,
+      wifiStuck = false;
     page.on("pageerror", (e) => {
       errors.push(e.message);
       console.error("Browser:", e.message);
@@ -339,6 +346,13 @@ const streams = {
               .join(""),
         });
       }
+      if (path === "/api/wifi/apply") {
+        if (wifiPollDrops > 0) {
+          wifiPollDrops--;
+          return route.abort("connectionreset");
+        }
+        return route.fulfill({ json: { ok: true, data: wifiApplyJob } });
+      }
       if (path === "/api/lan/download")
         return route.fulfill({
           contentType: "application/octet-stream",
@@ -394,12 +408,51 @@ const streams = {
             fixtures["/api/proxy/mihomo/status"],
             req.postDataJSON(),
           );
-        if (path === "/api/wifi/settings") {
+        if (path === "/api/wifi/settings" || path === "/api/wifi/settings/async") {
           Object.assign(wifi, req.postDataJSON());
           if (req.postDataJSON().wifi6_switch !== undefined) {
             wifi.htmode_2g = wifi.wifi6_switch === "1" ? "EHT40" : "HT40";
             wifi.htmode_5g = wifi.wifi6_switch === "1" ? "EHT160" : "VHT160";
           }
+          if (path === "/api/wifi/settings/async") {
+            wifiApplyJob = {
+              job_id: wifiApplyJob.job_id + 1,
+              state: wifiStuck ? "applying" : "verified",
+              elapsed_ms: 50,
+              error: null,
+            };
+            return route.fulfill({
+              status: 202,
+              json: {
+                ok: true,
+                data: {
+                  status: "applying",
+                  job_id: wifiApplyJob.job_id,
+                  verified: false,
+                },
+              },
+            });
+          }
+        }
+        if (path === "/api/wifi/guest/async") {
+          Object.assign(fixtures["/api/wifi/guest"], req.postDataJSON());
+          wifiApplyJob = {
+            job_id: wifiApplyJob.job_id + 1,
+            state: "verified",
+            elapsed_ms: 50,
+            error: null,
+          };
+          return route.fulfill({
+            status: 202,
+            json: {
+              ok: true,
+              data: {
+                status: "applying",
+                job_id: wifiApplyJob.job_id,
+                verified: false,
+              },
+            },
+          });
         }
         if (path === "/api/dns/apply")
           Object.assign(fixtures["/api/dns/status"], req.postDataJSON());
@@ -759,24 +812,54 @@ const streams = {
       beforeWifi,
       "cancelled wireless disruption does not write",
     );
+    wifiPollDrops = 1;
     await standard.selectOption("1");
     await page
       .getByRole("button", { name: "Continue and apply", exact: true })
       .click();
     await page.getByText("Applied and verified", { exact: true }).waitFor();
     assert.deepEqual(writes.at(-1), {
-      path: "/api/wifi/settings",
+      path: "/api/wifi/settings/async",
       body: { wifi6_switch: "1" },
     });
+    assert.equal(wifiPollDrops, 0, "async Wi-Fi polling survives transient reconnect");
     await page.waitForFunction(
       () =>
         document.querySelectorAll('select option[value="EHT160"]').length > 0,
     );
     assert.equal(await widths.nth(0).inputValue(), "EHT40");
     assert.equal(await widths.nth(1).inputValue(), "EHT160");
+    // B31 radio options: txpower is 40/80/100, channel Auto is "0", width Auto is "Auto".
+    const power2g = page.getByLabel("Transmit power (%)", { exact: true }).nth(0);
+    assert.deepEqual(
+      await power2g.locator("option").evaluateAll((opts) => opts.map((o) => o.value)),
+      ["40", "80", "100"],
+    );
+    assert.equal(
+      await page.getByLabel("Channel", { exact: true }).nth(0).inputValue(),
+      "0",
+    );
+    assert.equal(await widths.nth(0).locator('option[value="Auto"]').count(), 1);
+    // Navigating away while a Wi-Fi change is still applying must abort cleanly
+    // and never leave a ghost lock on unrelated pages.
+    wifiStuck = true;
+    await power2g.selectOption("80");
+    await page
+      .getByRole("button", { name: "Continue and apply", exact: true })
+      .click();
+    await page.getByRole("button", { name: "Stop waiting", exact: true }).waitFor();
+    await page.evaluate(() => (location.hash = "services/mihomo"));
+    await page.getByLabel("Mode", { exact: true }).waitFor();
+    assert.equal(
+      await page.getByLabel("Mode", { exact: true }).isEnabled(),
+      true,
+      "leaving an in-flight Wi-Fi change must not lock other pages",
+    );
+    wifiStuck = false;
     // Reopening the radio page must read both the saved switch and the
     // firmware's new width namespace, rather than retaining a local draft.
     await page.evaluate(() => (location.hash = "wifi/hotspot"));
+    await page.getByLabel("Wi-Fi master switch", { exact: true }).waitFor();
     await page.getByLabel("Network name", { exact: true }).first().waitFor();
     await page.evaluate(() => (location.hash = "wifi/radio"));
     await standard.waitFor();

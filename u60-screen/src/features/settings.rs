@@ -3,17 +3,15 @@ use serde_json::json;
 const ON: &[(&str, &str)] = &[("0", "关闭"), ("1", "开启")];
 const DISABLED: &[(&str, &str)] = &[("0", "开启"), ("1", "关闭")];
 const ENC: &[(&str, &str)] = &[
-    ("none", "开放网络"),
-    ("psk+tkip", "WPA / TKIP"),
-    ("psk+ccmp", "WPA / AES"),
-    ("psk2+ccmp", "WPA2 / AES"),
-    ("psk-mixed+ccmp", "WPA / WPA2"),
-    ("sae", "WPA3"),
     ("sae-mixed", "WPA2 / WPA3"),
+    ("psk2+ccmp", "WPA2 / AES"),
+    ("sae", "WPA3"),
+    ("psk-mixed+tkip+ccmp", "WPA / WPA2"),
+    ("none", "开放网络"),
 ];
 fn endpoint(id: &str) -> Option<&'static str> {
     Some(match id {
-        "wifi2" | "wifi5" => "/api/wifi/status",
+        "wifi-master" | "wifi2" | "wifi5" => "/api/wifi/status",
         "guest" => "/api/wifi/guest",
         "charge" => "/api/device/charge-control",
         "fast-boot" => "/api/device/fast-boot",
@@ -33,6 +31,45 @@ pub fn page(id: &str, readings: &Data) -> Page {
     let mut p = Page::default();
     let d = data(readings, "settings");
     match id {
+        "wifi-master" => {
+            p.fields.push(Field::choice(
+                "wifi_onoff",
+                crate::i18n::tr("Wi-Fi 总开关"),
+                &d["wifi_onoff"],
+                ON,
+            ));
+            p.fields.push(Field::choice(
+                "wifi6_switch",
+                "Wi-Fi 7",
+                &d["wifi6_switch"],
+                ON,
+            ));
+            let band_state = |radio_key: &str, ssid_key: &str| -> Value {
+                if d["wifi_onoff"] == "0" || d[radio_key] == "1" {
+                    json!(crate::i18n::tr("已关闭"))
+                } else {
+                    let ssid = text(&d[ssid_key]);
+                    if ssid.is_empty() {
+                        json!(crate::i18n::tr("已开启"))
+                    } else {
+                        json!(ssid)
+                    }
+                }
+            };
+            p.row(
+                crate::i18n::tr("2.4 GHz 热点"),
+                &band_state("radio2_disabled", "ssid_2g"),
+            );
+            p.row(
+                crate::i18n::tr("5 GHz 热点"),
+                &band_state("radio5_disabled", "ssid_5g"),
+            );
+            p.row(crate::i18n::tr("连接数量"), &d["clients_total"]);
+            p.note = crate::i18n::tr(
+                "总开关与 Wi-Fi 7 同时作用于 2.4 GHz 和 5 GHz 热点。各频段名称、密码和信道请在对应热点页设置。",
+            )
+            .into();
+        }
         "wifi2" | "wifi5" => {
             let band = if id == "wifi2" { "2g" } else { "5g" };
             let radio = if id == "wifi2" {
@@ -41,22 +78,14 @@ pub fn page(id: &str, readings: &Data) -> Page {
                 "radio5_disabled"
             };
             p.fields.push(Field::choice(
-                "wifi_onoff",
-                crate::i18n::tr("Wi-Fi 总开关"),
-                &d["wifi_onoff"],
-                ON,
-            ));
-            p.fields.push(Field::choice(
                 radio,
-                crate::i18n::tr("此频段热点"),
+                if id == "wifi2" {
+                    crate::i18n::tr("2.4 GHz 开关")
+                } else {
+                    crate::i18n::tr("5 GHz 开关")
+                },
                 &d[radio],
                 DISABLED,
-            ));
-            p.fields.push(Field::choice(
-                "wifi6_switch",
-                "Wi-Fi 7",
-                &d["wifi6_switch"],
-                ON,
             ));
             for (key, label) in [
                 ("ssid", crate::i18n::tr("网络名称")),
@@ -73,7 +102,12 @@ pub fn page(id: &str, readings: &Data) -> Page {
                     "encryption" => Field::choice(&key, label, &d[&key], ENC),
                     "key" => Field::password(&key, label, d.is_object()),
                     "hidden" => Field::choice(&key, label, &d[&key], ON),
-                    "txpower" => Field::number(&key, label, &d[&key], 1, 100),
+                    "txpower" => Field::choice(
+                        &key,
+                        label,
+                        &d[&key],
+                        &[("40", "40%"), ("80", "80%"), ("100", "100%")],
+                    ),
                     "htmode" => {
                         let current = text(&d[&key]);
                         let prefix = ["EHT", "HE", "VHT", "HT"]
@@ -89,8 +123,13 @@ pub fn page(id: &str, readings: &Data) -> Page {
                         } else {
                             &[20, 40, 80, 160][..]
                         };
+                        let normalized = if current.eq_ignore_ascii_case("auto") {
+                            json!("Auto")
+                        } else {
+                            d[&key].clone()
+                        };
                         let mut choices =
-                            vec![("auto".to_string(), crate::i18n::tr("自动").to_string())];
+                            vec![("Auto".to_string(), crate::i18n::tr("自动").to_string())];
                         choices.extend(
                             widths
                                 .iter()
@@ -100,7 +139,7 @@ pub fn page(id: &str, readings: &Data) -> Page {
                             .iter()
                             .map(|(key, label)| (key.as_str(), label.as_str()))
                             .collect();
-                        Field::choice(&key, label, &d[&key], &choices)
+                        Field::choice(&key, label, &normalized, &choices)
                     }
                     "channel" => {
                         let channels = if band == "2g" {
@@ -111,8 +150,8 @@ pub fn page(id: &str, readings: &Data) -> Page {
                                 128, 132, 136, 140, 149, 153, 157, 161, 165,
                             ]
                         };
-                        let current = if text(&d[&key]) == "0" {
-                            json!("auto")
+                        let current = if text(&d[&key]).eq_ignore_ascii_case("auto") {
+                            json!("0")
                         } else {
                             d[&key].clone()
                         };
@@ -120,7 +159,7 @@ pub fn page(id: &str, readings: &Data) -> Page {
                             &key,
                             label,
                             &current,
-                            &[("auto", crate::i18n::tr("自动"))],
+                            &[("0", crate::i18n::tr("自动"))],
                         );
                         for channel in channels {
                             let value = channel.to_string();
@@ -150,9 +189,24 @@ pub fn page(id: &str, readings: &Data) -> Page {
             p.note = crate::i18n::tr("只保存修改过的字段。密码留空保留现有密码。").into();
         }
         "guest" => {
+            let guest_disabled = if !d["disabled"].is_null() {
+                d["disabled"].clone()
+            } else if !d["disabled_2g"].is_null() || !d["disabled_5g"].is_null() {
+                json!(if d["disabled_2g"] == "0" || d["disabled_5g"] == "0" {
+                    "0"
+                } else {
+                    "1"
+                })
+            } else {
+                Value::Null
+            };
+            p.fields.push(Field::choice(
+                "guest_disabled",
+                crate::i18n::tr("访客网络"),
+                &guest_disabled,
+                DISABLED,
+            ));
             for (key, label) in [
-                ("disabled_2g", crate::i18n::tr("2.4 GHz 访客网络")),
-                ("disabled_5g", crate::i18n::tr("5 GHz 访客网络")),
                 ("ssid", crate::i18n::tr("网络名称")),
                 ("encryption", crate::i18n::tr("安全方式")),
                 ("key", crate::i18n::tr("新密码")),
@@ -169,7 +223,6 @@ pub fn page(id: &str, readings: &Data) -> Page {
                     }
                     "key" => Field::password(&wire, label, d.is_object()),
                     "encryption" => Field::choice(&wire, label, &d[key], ENC),
-                    "disabled_2g" | "disabled_5g" => Field::choice(&wire, label, &d[key], DISABLED),
                     _ => Field::choice(&wire, label, &d[key], ON),
                 });
             }
@@ -192,6 +245,7 @@ pub fn page(id: &str, readings: &Data) -> Page {
                 crate::i18n::tr("剩余访问时间 / 秒"),
                 &d["remaining_seconds"],
             );
+            p.note = crate::i18n::tr("同时开启或关闭 2.4 GHz 与 5 GHz 访客网络。").into();
         }
         "charge" => {
             p.fields = vec![
@@ -303,8 +357,23 @@ pub fn page(id: &str, readings: &Data) -> Page {
             p.row(crate::i18n::tr("恢复状态"), &d["status"]["state"]);
         }
         "tailscale-config" => {
+            let mut idle = Field::choice(
+                "idle_timeout_mins",
+                crate::i18n::tr("无设备自动暂停"),
+                &d["idle_timeout_mins"],
+                &[
+                    ("0", crate::i18n::tr("关闭（常驻）")),
+                    ("5", crate::i18n::tr("5 分钟")),
+                    ("10", crate::i18n::tr("10 分钟")),
+                    ("15", crate::i18n::tr("15 分钟")),
+                    ("30", crate::i18n::tr("30 分钟")),
+                    ("60", crate::i18n::tr("60 分钟")),
+                ],
+            );
+            idle.wire = Wire::Integer;
             p.fields = vec![
                 Field::text("hostname", crate::i18n::tr("节点名称"), &d["hostname"]),
+                idle,
                 Field::boolean(
                     "hold_wakelock",
                     crate::i18n::tr("保持设备唤醒"),
@@ -350,7 +419,7 @@ pub fn page(id: &str, readings: &Data) -> Page {
         _ => return p,
     }
     let warning = match id {
-        "wifi2" | "wifi5" | "guest" => {
+        "wifi-master" | "wifi2" | "wifi5" | "guest" => {
             crate::i18n::tr("应用后热点可能重启，已连接设备需要重新连接。开放网络不要求密码。")
         }
         "auto-sleep" => crate::i18n::tr("没有热点客户端时可能进入整机休眠，需要机身电源键唤醒。"),
@@ -375,6 +444,7 @@ pub fn plan(id: &str, action: &str, p: &Page, readings: &Data) -> Result<Plan> {
         crate::i18n::tr("没有需要保存的更改。")
     );
     let path = match id {
+        "wifi-master" => "/api/wifi/settings/async",
         "wifi2" | "wifi5" | "guest" => {
             let (ssid, key, enc) = if id == "guest" {
                 (
@@ -437,9 +507,9 @@ pub fn plan(id: &str, action: &str, p: &Page, readings: &Data) -> Result<Plan> {
                 );
             }
             if id == "guest" {
-                "/api/wifi/guest"
+                "/api/wifi/guest/async"
             } else {
-                "/api/wifi/settings"
+                "/api/wifi/settings/async"
             }
         }
         "tailscale-config" => {

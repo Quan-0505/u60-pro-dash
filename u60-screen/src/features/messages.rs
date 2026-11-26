@@ -118,14 +118,13 @@ pub fn page(id: &str, readings: &Data) -> Page {
                         });
                         let tag = text(&message["tag"]);
                         if ["0", "1"].contains(&tag.as_str()) {
-                            p.actions.push(Action::new(
+                            p.actions.push(Action::immediate(
                                 if tag == "1" { "read" } else { "unread" },
                                 if tag == "1" {
                                     crate::i18n::tr("标记已读")
                                 } else {
                                     crate::i18n::tr("标记未读")
                                 },
-                                crate::i18n::tr("只改变此短信的阅读标记。"),
                             ));
                         }
                         p.actions.push(Action::new(
@@ -152,7 +151,7 @@ pub fn page(id: &str, readings: &Data) -> Page {
                     })
                     .collect();
                 p.note = crate::i18n::tr(
-                    "分别读取设备与 SIM 最近 500 条，按短信 ID 去重。点开不会自动标记已读。",
+                    "分别读取设备与 SIM 最近 500 条，按短信 ID 去重。点开未读短信自动标记已读。",
                 )
                 .into();
             }

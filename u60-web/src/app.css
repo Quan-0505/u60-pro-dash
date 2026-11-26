@@ -360,6 +360,13 @@ input[aria-label] {
   margin-top: 2px;
   flex-shrink: 0;
 }
+.form-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16px;
+  margin-top: 10px;
+  font-size: 12px;
+}
 .form-result {
   color: var(--good);
   font-size: 12px;

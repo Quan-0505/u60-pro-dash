@@ -860,6 +860,7 @@ impl State {
             .into(),
         );
         ui.set_feature_busy(self.features.blocking());
+        ui.set_feature_can_stop(self.features.can_stop_waiting());
         ui.set_feature_refreshing(self.features.busy());
         ui.set_feature_can_refresh(self.features.can_refresh());
         ui.set_feature_notice(self.features.notice.clone().into());
@@ -870,6 +871,16 @@ impl State {
         let page = &self.features.page;
         if crate::features::operating::reads(&self.features.id).is_some() {
             let modes = crate::features::data(&self.features.data, "operating");
+            let wifi = page
+                .field("wifi_onoff")
+                .ok()
+                .filter(|f| f.available)
+                .and_then(|f| match f.value.as_str() {
+                    "1" => Some(1),
+                    "0" => Some(0),
+                    _ => None,
+                });
+            ui.set_control_wifi(wifi.unwrap_or(-1));
             let airplane = page
                 .field("airplane")
                 .ok()
@@ -1017,16 +1028,87 @@ impl State {
                 .iter()
                 .enumerate()
                 .filter(|(_, f)| f.visible)
-                .map(|(i, f)| FeatureInput {
-                    index: i as i32,
-                    title: f.label.clone().into(),
-                    subtitle: f.display().into(),
-                    tag: if f.dirty() {
-                        crate::i18n::tr("已改")
+                .map(|(i, f)| {
+                    let is_binary_toggle = f.choices.len() == 2
+                        && matches!(
+                            (f.choices[0].value.as_str(), f.choices[1].value.as_str()),
+                            ("0", "1") | ("1", "0") | ("false", "true") | ("true", "false")
+                        );
+                    let is_segmented = !is_binary_toggle
+                        && (2..=4).contains(&f.choices.len())
+                        && f.choices.iter().all(|c| c.label.chars().count() <= 8);
+                    let is_stepper = f.choices.is_empty() && !f.secret && f.range.is_some();
+                    let kind = if is_binary_toggle {
+                        1
+                    } else if is_segmented {
+                        2
+                    } else if is_stepper {
+                        3
                     } else {
-                        ""
+                        0
+                    };
+                    let checked = if is_binary_toggle {
+                        if f.key.contains("disabled") {
+                            f.value == "0"
+                        } else {
+                            matches!(f.value.as_str(), "1" | "true")
+                        }
+                    } else {
+                        false
+                    };
+                    let seg = |idx: usize| -> SharedString {
+                        if is_segmented {
+                            f.choices
+                                .get(idx)
+                                .map(|c| c.label.clone().into())
+                                .unwrap_or_default()
+                        } else {
+                            SharedString::default()
+                        }
+                    };
+                    let seg_active = if is_segmented {
+                        f.choices
+                            .iter()
+                            .position(|c| c.value == f.value)
+                            .map(|p| p as i32)
+                            .unwrap_or(-1)
+                    } else {
+                        -1
+                    };
+                    let (can_dec, can_inc) = if let Some((min, max)) = f.range {
+                        match f.value.parse::<i64>() {
+                            Ok(cur) => (cur > min, cur < max),
+                            Err(_) => (false, false),
+                        }
+                    } else {
+                        (false, false)
+                    };
+                    FeatureInput {
+                        index: i as i32,
+                        kind,
+                        title: f.label.clone().into(),
+                        subtitle: f.display().into(),
+                        tag: if f.dirty() {
+                            crate::i18n::tr("已改")
+                        } else {
+                            ""
+                        }
+                        .into(),
+                        checked,
+                        available: f.available,
+                        seg_count: if is_segmented {
+                            f.choices.len() as i32
+                        } else {
+                            0
+                        },
+                        seg_0: seg(0),
+                        seg_1: seg(1),
+                        seg_2: seg(2),
+                        seg_3: seg(3),
+                        seg_active,
+                        can_dec,
+                        can_inc,
                     }
-                    .into(),
                 })
                 .collect(),
             |row| row.index,
@@ -1442,6 +1524,100 @@ impl App {
                 s.edit_feature(&u, index);
             }
         });
+        bind!(on_feature_toggle, |s, u, index| {
+            if let Ok(index) = usize::try_from(index) {
+                s.features.pause_background();
+                if s.features.busy() {
+                    return;
+                }
+                let next = s.features.page.fields.get(index).and_then(|f| {
+                    if f.available && f.choices.len() == 2 {
+                        Some(if f.value == f.choices[0].value {
+                            f.choices[1].value.clone()
+                        } else {
+                            f.choices[0].value.clone()
+                        })
+                    } else {
+                        None
+                    }
+                });
+                if let Some(value) = next {
+                    if let Err(error) = s.features.edit(index, value) {
+                        u.set_message(error.to_string().into());
+                    } else {
+                        s.apply_feature_edit(&u);
+                    }
+                }
+            }
+        });
+        bind!(on_feature_segment, |s, u, index, choice_index| {
+            if let (Ok(index), Ok(choice_index)) =
+                (usize::try_from(index), usize::try_from(choice_index))
+            {
+                s.features.pause_background();
+                if s.features.busy() {
+                    return;
+                }
+                let next = s.features.page.fields.get(index).and_then(|f| {
+                    if f.available {
+                        f.choices.get(choice_index).map(|c| c.value.clone())
+                    } else {
+                        None
+                    }
+                });
+                if let Some(value) = next {
+                    if s.features
+                        .page
+                        .fields
+                        .get(index)
+                        .is_some_and(|f| f.value == value)
+                    {
+                        return;
+                    }
+                    if let Err(error) = s.features.edit(index, value) {
+                        u.set_message(error.to_string().into());
+                    } else {
+                        s.apply_feature_edit(&u);
+                    }
+                }
+            }
+        });
+        bind!(on_feature_step, |s, u, index, delta| {
+            if let Ok(index) = usize::try_from(index) {
+                s.features.pause_background();
+                if s.features.busy() {
+                    return;
+                }
+                let next = s.features.page.fields.get(index).and_then(|f| {
+                    let (min, max) = f.range?;
+                    if !f.available {
+                        return None;
+                    }
+                    let cur = f.value.parse::<i64>().ok()?;
+                    let step = if (max - min >= 50 && f.key.contains("limit")) || max - min >= 200 {
+                        5
+                    } else {
+                        1
+                    };
+                    let target = (cur + i64::from(delta) * step).clamp(min, max);
+                    (target != cur).then(|| target.to_string())
+                });
+                if let Some(value) = next {
+                    if let Err(error) = s.features.edit(index, value) {
+                        u.set_message(error.to_string().into());
+                    } else {
+                        s.apply_feature_edit(&u);
+                    }
+                }
+            }
+        });
+        bind!(on_feature_stop_waiting, |s, u| {
+            let State {
+                agent, features, ..
+            } = &mut *s;
+            features.stop_waiting(agent.as_ref());
+            s.render_features(&u);
+        });
         bind!(on_choose, |s, u, index| {
             if let Some(slot) = s.metric_choice.take() {
                 let options = [
@@ -1507,9 +1683,20 @@ impl App {
         });
         bind!(on_feature_action, |s, u, index| {
             if let Ok(index) = usize::try_from(index) {
+                let immediate = s
+                    .features
+                    .page
+                    .actions
+                    .get(index)
+                    .is_some_and(|a| !a.confirm && a.phrase.is_none());
                 match s.features.prepare(index) {
                     Ok(()) => {
-                        if let Some(plan) = &s.features.confirmation {
+                        if immediate && s.features.confirmation.as_ref().is_some_and(|p| p.phrase.is_none()) {
+                            if let Err(error) = s.features.confirm("") {
+                                u.set_message(error.to_string().into());
+                            }
+                            s.render_features(&u);
+                        } else if let Some(plan) = &s.features.confirmation {
                             u.set_confirm_body(plan.summary.clone().into());
                             u.set_confirm_phrase(plan.phrase.clone().unwrap_or_default().into());
                             u.set_confirm_word("".into());
@@ -1869,7 +2056,7 @@ mod navigation_tests {
             serde_json::from_str(include_str!("../../design/product-ui/src/features.json"))
                 .unwrap();
         assert_eq!(agreed.len(), 82);
-        assert_eq!(c.features.len(), agreed.len() + 2);
+        assert_eq!(c.features.len(), agreed.len() + 3);
         for expected in agreed {
             let id = expected["id"].as_str().unwrap();
             let feature = c

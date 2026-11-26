@@ -268,7 +268,15 @@ function ServiceDetail({ id, tab }: { id: string; tab: string }) {
           </p>
         </div>
         <Status on={active(id, d)}>
-          {t(!d ? "Loading…" : active(id, d) ? "Running" : "Stopped")}
+          {t(
+            !d
+              ? "Loading…"
+              : id === "tailscale" && d?.state === "idle_paused"
+                ? "Idle paused"
+                : active(id, d)
+                  ? "Running"
+                  : "Stopped",
+          )}
         </Status>
         <button
           className="btn"
@@ -332,6 +340,10 @@ function Tailscale({
               : "Subnet routes, DNS and exit nodes require kernel gateway mode.",
             decode: (d) => ({
               ...d,
+              idle_timeout_mins:
+                d.idle_timeout_mins !== undefined
+                  ? String(d.idle_timeout_mins)
+                  : "10",
               advertise_routes: (d.advertise_routes || []).join(", "),
             }),
             fields: [
@@ -339,6 +351,19 @@ function Tailscale({
                 required: true,
                 maxLength: 63,
               }),
+              options(
+                "idle_timeout_mins",
+                "Auto-pause when no clients",
+                [
+                  ["0", "Disabled (always on)"],
+                  ["5", "After 5 minutes"],
+                  ["10", "After 10 minutes"],
+                  ["15", "After 15 minutes"],
+                  ["30", "After 30 minutes"],
+                  ["60", "After 1 hour"],
+                ],
+                { wire: "number" },
+              ),
               field("advertise_routes", "Advertised IPv4 routes"),
               flag("accept_routes", "Accept remote subnet routes", "boolean"),
               flag("tailscale_ssh", "Tailscale SSH", "boolean"),
@@ -398,7 +423,12 @@ function Tailscale({
     <>
       <Stats
         items={[
-          ["Connection", d?.backend_state],
+          [
+            "Connection",
+            d?.state === "idle_paused"
+              ? t("Idle paused (waiting for clients)")
+              : d?.backend_state,
+          ],
           ["Node", d?.hostname],
           ["Addresses", (d?.tailscale_ips || []).join(" · ")],
           [

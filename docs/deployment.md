@@ -4,7 +4,7 @@
 
 ## 安装与升级
 
-设备需要先有可用的 root ADB（或 SSH）、已配置密码并正在运行的后台，以及现有开机启动文件。脚本适配 U60 Pro/B31 的显示与启动路径；它不是原厂设备的解锁或刷机工具。首次接入后台仍使用 `setup.sh`，后续使用本页命令。
+设备只需要有可用的 root ADB（或 SSH）。`dash.sh` 已完整支持全新出厂设备的首次安装（自动引导设置登录密码并配置启动钩子）以及已有安装的无缝升级，不再依赖上游 `setup.sh`；如需无线运维，可直接运行 `bash dash.sh setup-ssh` 配置 Dropbear SSH。脚本适配 U60 Pro/B31 的显示与启动路径；它不是原厂设备的解锁或刷机工具（B31 获取 ADB 见 [README](../README.md#获取设备-adb首次接入)）。
 
 电脑需要 Bash、Python 3.11+、Node.js 22.12+ 与 npm、Rust、`aarch64-unknown-linux-musl` 标准库、ARM64 交叉链接器，以及 ADB 或 SSH 客户端。脚本优先复用 `~/.local/share/u60-build/` 的工具链，也支持 `U60_BUILD_ROOT`、`CARGO`、`CARGO_HOME`、`RUSTC`、`CARGO_TARGET_AARCH64_UNKNOWN_LINUX_MUSL_LINKER`。构建依赖与链接器说明见 [原生屏幕开发](../u60-screen/NATIVE.md)。
 
@@ -74,7 +74,7 @@ Tailscale 内核网关的远程 Web 使用 `2027`，本机及热点访问使用 
 
 不要发布 `agent.env`、`original/startup.sh` 或设备日志；其中可能含原配置和身份信息。仓库只保存代码与示例，不回传设备密码。
 
-若连接在安装途中断开，恢复连接后先运行 `bash dash.sh status`；观察与回退在设备内独立执行，不依赖电脑保持连接。不要反复运行旧部署脚本。预检查要求 `/data` 至少有 150 MiB 空间，留存的新旧版本不会自动清理。
+若连接在安装途中断开，恢复连接后先运行 `bash dash.sh status`；观察与回退在设备内独立执行，不依赖电脑保持连接。不要反复运行旧部署脚本。预检查要求 `/data` 至少有 150 MiB 空间；安装通过健康观察后会自动清理不再需要的历史版本，仅保留 `current` 与 `previous`。
 
 屏幕能够操作但随后回滚时，先看状态中的具体服务错误，以及 `last-failure/health.log`。例如控制接口早于 TUN 网卡启动时，旧版本可能立即添加路由并报网卡不存在；当前版本等待隧道实际创建且启用后再接管热点流量。等待有超时，失败仍会清理本服务规则并保留原因。
 

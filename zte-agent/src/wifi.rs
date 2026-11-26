@@ -336,6 +336,14 @@ pub fn wifi_set(_state: &AppState, body: &[u8]) -> (u16, Value) {
     save::settings(body, false)
 }
 
+pub fn wifi_set_async(_state: &AppState, body: &[u8]) -> (u16, Value) {
+    save::settings_async(body, false)
+}
+
+pub fn wifi_apply_status(_state: &AppState) -> (u16, Value) {
+    save::apply_status()
+}
+
 // ---------------------------------------------------------------------------
 // GET /api/wifi/guest
 // ---------------------------------------------------------------------------
@@ -351,8 +359,16 @@ pub fn guest_status(_state: &AppState) -> (u16, Value) {
     result.insert("ssid".into(), json!(uci_get_wireless("guest_2g.ssid")));
     result.insert("key".into(), json!(uci_get_wireless("guest_2g.key")));
     result.insert("encryption".into(), json!(uci_get_wireless("guest_2g.encryption")));
-    result.insert("disabled_2g".into(), json!(uci_get_wireless("guest_2g.disabled")));
-    result.insert("disabled_5g".into(), json!(uci_get_wireless("guest_5g.disabled")));
+    let disabled_2g = uci_get_wireless("guest_2g.disabled");
+    let disabled_5g = uci_get_wireless("guest_5g.disabled");
+    let disabled = if disabled_2g == "0" || disabled_5g == "0" {
+        "0"
+    } else {
+        "1"
+    };
+    result.insert("disabled".into(), json!(disabled));
+    result.insert("disabled_2g".into(), json!(disabled_2g));
+    result.insert("disabled_5g".into(), json!(disabled_5g));
     result.insert("hidden".into(), json!(uci_get_wireless("guest_2g.hidden")));
     result.insert("isolate".into(), json!(uci_get_wireless("guest_2g.isolate")));
     if let Ok(seconds) = w.get("guest_2g.guest_active_time").parse::<u32>() {
@@ -375,6 +391,10 @@ pub fn guest_status(_state: &AppState) -> (u16, Value) {
 
 pub fn guest_set(_state: &AppState, body: &[u8]) -> (u16, Value) {
     save::settings(body, true)
+}
+
+pub fn guest_set_async(_state: &AppState, body: &[u8]) -> (u16, Value) {
+    save::settings_async(body, true)
 }
 
 #[cfg(test)]

@@ -11,6 +11,7 @@ export component TextEditor inherits AmbientBackground {
     in-out property <string> value;
     in-out property <int> layout: 1;
     property <bool> upper;
+    property <bool> reveal-secret: false;
     callback key(string);
     callback submit;
     callback cancel;
@@ -23,20 +24,37 @@ export component TextEditor inherits AmbientBackground {
         [["1","2","3","4","5","6","7","8","9","0"], [".",":","/","[","]","-","+","=","_","@"], ["#","$","%","&","*","(",")","!","?"]] :
         [[":",";","\"","'","`","~","|","^","\\"], ["{","}","<",">","[","]","(",")"], ["!","?","=","+","-","_","&","*"]];
     VerticalLayout {
-        padding: 8px; spacing: 4px;
-        Label { text: root.title; height: 28px; font-size: 22px; font-weight: 650; }
+        padding: 6px; spacing: 5px;
+        Label { text: root.title; height: 28px; font-size: 20px; font-weight: 650; }
         Rectangle {
-            height: root.multiline ? 104px : 44px; background: Palette.surface; border-radius: 8px;
-            border-width: 1px; border-color: Palette.accent-ink;
+            height: root.multiline ? 104px : 46px; background: Palette.surface; border-radius: 10px;
+            border-width: 1.5px; border-color: Palette.accent-ink;
             input := TextInput {
-                x: 10px; width: parent.width - 20px; height: parent.height;
+                x: 10px; width: parent.width - (root.secret && !root.multiline ? 54px : 20px); height: parent.height;
                 text <=> root.value;
-                input-type: root.secret ? InputType.password : InputType.text;
+                input-type: root.secret && !root.reveal-secret ? InputType.password : InputType.text;
                 single-line: !root.multiline; wrap: word-wrap; color: Palette.text; font-size: 18px;
                 vertical-alignment: root.multiline ? top : center;
                 init => { self.focus(); }
                 edited => { root.activity(); }
                 accepted => { if !root.multiline { root.submit(); } }
+            }
+            if root.secret && !root.multiline: Rectangle {
+                x: parent.width - 42px; y: 3px; width: 38px; height: 40px; border-radius: 8px;
+                background: eye.pressed ? Palette.surface-alt : transparent;
+                Path {
+                    x: 7px; y: 12px; width: 24px; height: 16px;
+                    commands: "M 1 8 Q 12 -5 23 8 Q 12 21 1 8 Z M 15 8 A 3 3 0 1 1 9 8 A 3 3 0 1 1 15 8";
+                    stroke: Palette.accent-ink; stroke-width: 1.5px;
+                }
+                if !root.reveal-secret: Path {
+                    x: 7px; y: 8px; width: 24px; height: 24px;
+                    commands: "M 2 2 L 22 22"; stroke: Palette.accent-ink; stroke-width: 1.5px;
+                }
+                eye := TouchArea {
+                    accessible-role: button; accessible-label: root.reveal-secret ? @tr("隐藏密码") : @tr("显示密码");
+                    clicked => { root.reveal-secret = !root.reveal-secret; root.activity(); }
+                }
             }
         }
         Label {
@@ -46,16 +64,16 @@ export component TextEditor inherits AmbientBackground {
         }
         Rectangle { vertical-stretch: 1; }
         for row in root.keys: HorizontalLayout {
-            spacing: 3px; height: 44px;
+            spacing: 2px; height: 46px;
             for key in row: TapButton {
                 text: key; text-size: 18px;
                 clicked => { input.focus(); root.key(key); }
             }
         }
         HorizontalLayout {
-            spacing: 5px; height: 44px;
+            spacing: 4px; height: 44px;
             TapButton { text: root.layout == 0 ? "123" : root.layout == 1 ? "#+=" : "ABC"; clicked => { root.layout = mod(root.layout + 1, 3); root.activity(); } }
-            TapButton { text: "Aa"; clicked => { root.upper = !root.upper; root.layout = 0; root.activity(); } }
+            TapButton { text: "Aa"; selected: root.layout == 0 && root.upper; clicked => { root.upper = !root.upper; root.layout = 0; root.activity(); } }
             TapButton { text: @tr("空格"); clicked => { input.focus(); root.key(" "); } }
             if root.multiline: TapButton { text: @tr("换行"); clicked => { input.focus(); root.key(Key.Return); } }
             TapButton { text: @tr("退格"); clicked => { input.focus(); root.key(Key.Backspace); } }

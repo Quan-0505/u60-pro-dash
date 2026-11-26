@@ -888,12 +888,26 @@
     "zh-Hans": "一个小时后",
     "zh-Hant": "一個小時後"
   },
+  "After 10 minutes": {
+    "en": "After 10 minutes",
+    "zh-Hans": "10 分钟后",
+    "zh-Hant": "10 分鐘後",
+    "ja": "10 分後",
+    "ko": "10분 후"
+  },
   "After 12 hours": {
     "en": "After 12 hours",
     "ja": "12時間後",
     "ko": "12시간 후에",
     "zh-Hans": "12个小时后",
     "zh-Hant": "12個小時後"
+  },
+  "After 15 minutes": {
+    "en": "After 15 minutes",
+    "zh-Hans": "15 分钟后",
+    "zh-Hant": "15 分鐘後",
+    "ja": "15 分後",
+    "ko": "15분 후"
   },
   "After 2 hours": {
     "en": "After 2 hours",
@@ -922,6 +936,13 @@
     "ko": "4시간 후",
     "zh-Hans": "在4个小时后",
     "zh-Hant": "在4個小時後"
+  },
+  "After 5 minutes": {
+    "en": "After 5 minutes",
+    "zh-Hans": "5 分钟后",
+    "zh-Hant": "5 分鐘後",
+    "ja": "5 分後",
+    "ko": "5분 후"
   },
   "After 8 hours": {
     "en": "After 8 hours",
@@ -1182,13 +1203,6 @@
     "zh-Hans": "已删除 {0} 条应答；新查询会重新填充缓存",
     "zh-Hant": "已刪除 {0} 條應答；新查詢會重新填充快取"
   },
-  "AppDPI": {
-    "en": "AppDPI",
-    "ja": "AppDPI",
-    "ko": "AppDPI",
-    "zh-Hans": "应用识别",
-    "zh-Hant": "應用識別"
-  },
   "Appearance": {
     "en": "Appearance",
     "ja": "外観",
@@ -1209,13 +1223,6 @@
     "ko": "테마 설정",
     "zh-Hans": "外观设置",
     "zh-Hant": "外觀設定"
-  },
-  "Application traffic": {
-    "en": "Application traffic",
-    "ja": "アプリの通信量",
-    "ko": "앱 트래픽",
-    "zh-Hans": "应用流量",
-    "zh-Hant": "應用流量"
   },
   "Applies while connected in kernel gateway mode. Remote routes still need approval and access rules.": {
     "en": "Applies while connected in kernel gateway mode. Remote routes still need approval and access rules.",
@@ -1370,6 +1377,13 @@
     "ko": "이 라우터를 승인",
     "zh-Hans": "授权这个路由器",
     "zh-Hant": "授權這個路由器"
+  },
+  "Auto-pause when no clients": {
+    "en": "Auto-pause when no clients",
+    "zh-Hans": "无设备自动暂停",
+    "zh-Hant": "無裝置自動暫停",
+    "ja": "クライアント未接続時に自動停止",
+    "ko": "연결된 기기 없을 때 자동 일시정지"
   },
   "Automatic": {
     "en": "Automatic",
@@ -3667,6 +3681,13 @@
     "zh-Hans": "已停用",
     "zh-Hant": "已停用"
   },
+  "Disabled (always on)": {
+    "en": "Disabled (always on)",
+    "zh-Hans": "关闭（常驻）",
+    "zh-Hant": "關閉（常駐）",
+    "ja": "無効（常時稼働）",
+    "ko": "사용 안 함 (항상 켜짐)"
+  },
   "Disabling keeps the amount and warning for later.": {
     "en": "Disabling keeps the amount and warning for later.",
     "ja": "禁輸は後日への警告と金額を保存します",
@@ -4731,6 +4752,13 @@
     "zh-Hans": "良好",
     "zh-Hant": "良好"
   },
+  "Guest Wi-Fi": {
+    "en": "Guest Wi-Fi",
+    "zh-Hans": "访客 Wi-Fi",
+    "zh-Hant": "訪客 Wi-Fi",
+    "ja": "ゲスト Wi-Fi",
+    "ko": "게스트 Wi-Fi"
+  },
   "Guest network": {
     "en": "Guest network",
     "ja": "ゲストネットワーク",
@@ -4996,6 +5024,20 @@
     "ko": "IPv6 홉 제한",
     "zh-Hans": "IPv6 跳转限制",
     "zh-Hant": "IPv6 跳轉限制"
+  },
+  "Idle paused": {
+    "en": "Idle paused",
+    "zh-Hans": "空闲暂停",
+    "zh-Hant": "閒置暫停",
+    "ja": "待機停止中",
+    "ko": "유휴 일시정지"
+  },
+  "Idle paused (waiting for clients)": {
+    "en": "Idle paused (waiting for clients)",
+    "zh-Hans": "空闲暂停（等待设备接入）",
+    "zh-Hant": "閒置暫停（等待裝置連入）",
+    "ja": "待機停止中（クライアント接続待ち）",
+    "ko": "유휴 일시정지 (기기 연결 대기 중)"
   },
   "If the console disconnects, reconnect to the router’s network and open this address. A lost response does not confirm the change.": {
     "en": "If the console disconnects, reconnect to the router’s network and open this address. A lost response does not confirm the change.",
@@ -5892,13 +5934,6 @@
     "ko": "실시간 HTTPS 상태",
     "zh-Hans": "实时 HTTPS 状态",
     "zh-Hant": "即時 HTTPS 狀態"
-  },
-  "Live application and connection statistics for LAN devices.": {
-    "en": "Live application and connection statistics for LAN devices.",
-    "ja": "LAN 端末のアプリと接続の統計を表示します。",
-    "ko": "LAN 기기의 앱 및 연결 통계를 실시간으로 확인합니다.",
-    "zh-Hans": "实时查看内网设备的应用流量和连接记录。",
-    "zh-Hant": "即時查看區域網路裝置的應用流量及連線記錄。"
   },
   "Live battery flow, charging progress and USB input, directly from your router.": {
     "en": "Live battery flow, charging progress and USB input, directly from your router.",
@@ -12172,6 +12207,13 @@
     "zh-Hans": "开启 HTTPS？",
     "zh-Hant": "開啟 HTTPS？"
   },
+  "Turns 2.4 GHz and 5 GHz guest networks on or off together (B31 firmware requires coupled dual-band guest APs).": {
+    "en": "Turns 2.4 GHz and 5 GHz guest networks on or off together (B31 firmware requires coupled dual-band guest APs).",
+    "zh-Hans": "同时开启或关闭 2.4 GHz 与 5 GHz 访客网络（B31 固件要求双频访客热点联动启停）。",
+    "zh-Hant": "同時開啟或關閉 2.4 GHz 與 5 GHz 訪客網路（B31 韌體要求雙頻訪客熱點聯動啟停）。",
+    "ja": "2.4 GHz と 5 GHz のゲストネットワークを同時に切り替えます（B31 ファームウェアは両帯域連動が必須です）。",
+    "ko": "2.4 GHz 및 5 GHz 게스트 네트워크를 함께 켜거나 끕니다 (B31 펌웨어는 양 대역 연동이 필요합니다)."
+  },
   "Type RESET to continue": {
     "en": "Type RESET to continue",
     "ja": "続行するには RESET と入力",
@@ -13369,47 +13411,12 @@
     "zh-Hans": "Wi-Fi 信号",
     "zh-Hant": "Wi-Fi 訊號"
   },
-  "Wi-Fi status": {
-    "en": "Wi-Fi status",
-    "ja": "Wi-Fi status",
-    "ko": "Wi-Fi status",
-    "zh-Hans": "WiFi 状态",
-    "zh-Hant": "WiFi 状态"
-  },
-  "Wi-Fi status uses the current wireless client list. Historical devices may remain listed; unavailable readings show unknown.": {
-    "en": "Wi-Fi status uses the current wireless client list. Historical devices may remain listed; unavailable readings show unknown.",
-    "ja": "Wi-Fi status uses the current wireless client list. Historical devices may remain listed; unavailable readings show unknown.",
-    "ko": "Wi-Fi status uses the current wireless client list. Historical devices may remain listed; unavailable readings show unknown.",
-    "zh-Hans": "WiFi 状态根据当前无线客户端列表显示；历史设备可能仍保留，读取不可用时显示状态未知。",
-    "zh-Hant": "WiFi 状态根据当前无线客户端列表显示；历史设备可能仍保留，读取不可用时显示状态未知。"
-  },
   "Wi-Fi upload link rate": {
     "en": "Wi-Fi upload link rate",
     "ja": "Wi-Fi アップロードリンク率",
     "ko": "Wi-Fi 업로드 링크 비율",
     "zh-Hans": "Wi-Fi 上传链接率",
     "zh-Hant": "Wi-Fi 上傳連結率"
-  },
-  "WiFi connected": {
-    "en": "WiFi connected",
-    "ja": "WiFi connected",
-    "ko": "WiFi connected",
-    "zh-Hans": "WiFi 已连接",
-    "zh-Hant": "WiFi 已连接"
-  },
-  "WiFi not connected": {
-    "en": "WiFi not connected",
-    "ja": "WiFi not connected",
-    "ko": "WiFi not connected",
-    "zh-Hans": "WiFi 未连接",
-    "zh-Hant": "WiFi 未连接"
-  },
-  "WiFi status unknown": {
-    "en": "WiFi status unknown",
-    "ja": "WiFi status unknown",
-    "ko": "WiFi status unknown",
-    "zh-Hans": "WiFi 状态未知",
-    "zh-Hant": "WiFi 状态未知"
   },
   "Windows": {
     "en": "Windows",
@@ -14390,5 +14397,61 @@
     "ko": "{0}{1}{2} Wi-Fi 링크 속도는 무선 연결 속도를 나타냅니다.",
     "zh-Hans": "{0}{1}{2} Wi-Fi 链路速率表示无线连接速率。",
     "zh-Hant": "{0}{1}{2} Wi-Fi 鏈路速率表示無線連線速率。"
+  },
+  "AppDPI": {
+    "en": "AppDPI",
+    "ja": "AppDPI",
+    "ko": "AppDPI",
+    "zh-Hans": "应用识别",
+    "zh-Hant": "應用識別"
+  },
+  "Application traffic": {
+    "en": "Application traffic",
+    "ja": "アプリの通信量",
+    "ko": "앱 트래픽",
+    "zh-Hans": "应用流量",
+    "zh-Hant": "應用流量"
+  },
+  "Live application and connection statistics for LAN devices.": {
+    "en": "Live application and connection statistics for LAN devices.",
+    "ja": "LAN 端末のアプリと接続の統計を表示します。",
+    "ko": "LAN 기기의 앱 및 연결 통계를 실시간으로 확인합니다.",
+    "zh-Hans": "实时查看内网设备的应用流量和连接记录。",
+    "zh-Hant": "即時查看區域網路裝置的應用流量及連線記錄。"
+  },
+  "Wi-Fi status": {
+    "en": "Wi-Fi status",
+    "ja": "Wi-Fi status",
+    "ko": "Wi-Fi status",
+    "zh-Hans": "WiFi 状态",
+    "zh-Hant": "WiFi 状态"
+  },
+  "Wi-Fi status uses the current wireless client list. Historical devices may remain listed; unavailable readings show unknown.": {
+    "en": "Wi-Fi status uses the current wireless client list. Historical devices may remain listed; unavailable readings show unknown.",
+    "ja": "Wi-Fi status uses the current wireless client list. Historical devices may remain listed; unavailable readings show unknown.",
+    "ko": "Wi-Fi status uses the current wireless client list. Historical devices may remain listed; unavailable readings show unknown.",
+    "zh-Hans": "WiFi 状态根据当前无线客户端列表显示；历史设备可能仍保留，读取不可用时显示状态未知。",
+    "zh-Hant": "WiFi 状态根据当前无线客户端列表显示；历史设备可能仍保留，读取不可用时显示状态未知。"
+  },
+  "WiFi connected": {
+    "en": "WiFi connected",
+    "ja": "WiFi connected",
+    "ko": "WiFi connected",
+    "zh-Hans": "WiFi 已连接",
+    "zh-Hant": "WiFi 已连接"
+  },
+  "WiFi not connected": {
+    "en": "WiFi not connected",
+    "ja": "WiFi not connected",
+    "ko": "WiFi not connected",
+    "zh-Hans": "WiFi 未连接",
+    "zh-Hant": "WiFi 未连接"
+  },
+  "WiFi status unknown": {
+    "en": "WiFi status unknown",
+    "ja": "WiFi status unknown",
+    "ko": "WiFi status unknown",
+    "zh-Hans": "WiFi 状态未知",
+    "zh-Hant": "WiFi 状态未知"
   }
 }

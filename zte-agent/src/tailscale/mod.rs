@@ -105,7 +105,15 @@ pub struct TailscaleManager {
     last_update: Mutex<Option<Value>>,
     login_url: Mutex<Option<String>>,
     wakelock_held: AtomicBool,
-    /// Supervisor wake-up: writers of `running` / `paused` notify so the
+    /// Set once the firmware rejects createWakelock as unsupported (e.g. B31),
+    /// preventing repeated ubus calls and log spam every poll cycle.
+    wakelock_unsupported: AtomicBool,
+    /// True while tailscaled is intentionally stopped because no local clients
+    /// have been connected for `idle_timeout_mins`. Resumes automatically once
+    /// a Wi-Fi or USB/LAN client connects.
+    idle_paused: AtomicBool,
+    idle_since: Mutex<Option<Instant>>,
+    /// Supervisor wake-up: writers of `running` / `paused` / `idle_paused` notify so the
     /// thread parks instead of polling. The mutex guards no data; holding
     /// it while notifying orders the flag store before a parked thread's
     /// predicate re-check so a wake cannot be lost.
@@ -318,6 +326,9 @@ impl TailscaleManager {
             last_update: Mutex::new(None),
             login_url: Mutex::new(None),
             wakelock_held: AtomicBool::new(false),
+            wakelock_unsupported: AtomicBool::new(false),
+            idle_paused: AtomicBool::new(false),
+            idle_since: Mutex::new(None),
             wake_lock: Mutex::new(()),
             wake_cv: Condvar::new(),
         }
@@ -350,7 +361,10 @@ impl TailscaleManager {
                 if !wan_connected(wan_status) {
                     continue;
                 }
-                if !mgr.running.load(Ordering::SeqCst) || mgr.paused.load(Ordering::SeqCst) {
+                if !mgr.running.load(Ordering::SeqCst)
+                    || mgr.paused.load(Ordering::SeqCst)
+                    || mgr.idle_paused.load(Ordering::SeqCst)
+                {
                     continue;
                 }
                 // Debounce bursts of WAN events
@@ -436,6 +450,43 @@ impl TailscaleManager {
                         .wait_timeout_while(guard, Duration::from_secs(IDLE_PARK_SECS), |_| {
                             !self.running.load(Ordering::SeqCst)
                                 || self.paused.load(Ordering::SeqCst)
+                        })
+                        .unwrap_or_else(|e| e.into_inner()),
+                );
+                continue;
+            }
+            if self.idle_paused.load(Ordering::SeqCst) {
+                let cfg = self.config.lock().unwrap().clone();
+                let has_clients = has_active_clients();
+                let action = {
+                    let mut since = self.idle_since.lock().unwrap();
+                    evaluate_idle_policy(
+                        true,
+                        cfg.idle_timeout_mins,
+                        cfg.enrolled,
+                        self.login_in_progress.load(Ordering::SeqCst),
+                        has_clients,
+                        &mut since,
+                        Instant::now(),
+                    )
+                };
+                if action == IdleAction::Resume {
+                    eprintln!("[tailscale] client connected or idle-pause disabled — resuming tailscaled");
+                    self.idle_paused.store(false, Ordering::SeqCst);
+                    if cfg.hold_wakelock {
+                        self.acquire_wakelock();
+                    }
+                    self.refresh_status();
+                    continue;
+                }
+                self.supervisor_idle.store(true, Ordering::SeqCst);
+                let guard = self.wake_lock.lock().unwrap_or_else(|e| e.into_inner());
+                drop(
+                    self.wake_cv
+                        .wait_timeout_while(guard, Duration::from_secs(10), |_| {
+                            self.running.load(Ordering::SeqCst)
+                                && !self.paused.load(Ordering::SeqCst)
+                                && self.idle_paused.load(Ordering::SeqCst)
                         })
                         .unwrap_or_else(|e| e.into_inner()),
                 );
@@ -558,9 +609,48 @@ impl TailscaleManager {
             let payload = self.refresh_status();
             let cfg = self.config.lock().unwrap().clone();
 
+            // Auto-pause tailscaled when no local clients have been connected
+            // for `idle_timeout_mins`, cutting background CPU & heat on a pocket hotspot.
+            let idle_action = {
+                let has_clients = if cfg.idle_timeout_mins > 0
+                    && cfg.enrolled
+                    && !self.login_in_progress.load(Ordering::SeqCst)
+                {
+                    has_active_clients()
+                } else {
+                    true
+                };
+                let mut since = self.idle_since.lock().unwrap();
+                evaluate_idle_policy(
+                    false,
+                    cfg.idle_timeout_mins,
+                    cfg.enrolled,
+                    self.login_in_progress.load(Ordering::SeqCst),
+                    has_clients,
+                    &mut since,
+                    Instant::now(),
+                )
+            };
+            if idle_action == IdleAction::Pause {
+                eprintln!(
+                    "[tailscale] no connected clients for {} min — auto-pausing tailscaled",
+                    cfg.idle_timeout_mins
+                );
+                self.idle_paused.store(true, Ordering::SeqCst);
+                self.graceful_stop(child);
+                self.release_wakelock();
+                self.refresh_status();
+                return true;
+            }
+
             // Wakelock is load-bearing for reachability — keep retrying if the
-            // ubus call failed earlier (silent sleep = dead tunnel).
-            if cfg.enabled && cfg.hold_wakelock && !self.wakelock_held.load(Ordering::SeqCst) {
+            // ubus call failed earlier (silent sleep = dead tunnel), unless the
+            // firmware already reported the method unsupported.
+            if cfg.enabled
+                && cfg.hold_wakelock
+                && !self.wakelock_held.load(Ordering::SeqCst)
+                && !self.wakelock_unsupported.load(Ordering::Relaxed)
+            {
                 self.acquire_wakelock();
             }
 
@@ -838,6 +928,8 @@ impl TailscaleManager {
             "advertise_routes": cfg.advertise_routes,
             "tailscale_ssh": cfg.tailscale_ssh,
             "hold_wakelock": cfg.hold_wakelock,
+            "idle_timeout_mins": cfg.idle_timeout_mins,
+            "idle_paused": self.idle_paused.load(Ordering::SeqCst),
             "pinned_version": cfg.pinned_version,
             "gateway_mode": gateway_mode(),
             "management_port": if gateway_mode() { management::remote_port(crate::httpd::http_port()) } else { crate::httpd::http_port() },
@@ -858,6 +950,11 @@ impl TailscaleManager {
         }
         if !cfg.enabled && !daemon_up {
             payload["state"] = json!("disabled");
+            return payload;
+        }
+        if self.idle_paused.load(Ordering::SeqCst) && !daemon_up {
+            payload["state"] = json!("idle_paused");
+            payload["backend_state"] = json!("IdlePaused");
             return payload;
         }
         if !daemon_up {
@@ -996,9 +1093,25 @@ impl TailscaleManager {
     // --- Wakelock ---
 
     fn acquire_wakelock(&self) {
+        if self.wakelock_unsupported.load(Ordering::Relaxed) {
+            return;
+        }
         match ubus::call("zwrt_zte_sleep_faw.wakelock", "createWakelock", Some("{}")) {
             Ok(_) => self.wakelock_held.store(true, Ordering::SeqCst),
-            Err(e) => eprintln!("[tailscale] createWakelock: {e}"),
+            Err(e) => {
+                if e.contains("Invalid command")
+                    || e.contains("Not found")
+                    || e.contains("Method not found")
+                {
+                    if !self.wakelock_unsupported.swap(true, Ordering::Relaxed) {
+                        eprintln!(
+                            "[tailscale] createWakelock unsupported on this firmware; disabling retries ({e})"
+                        );
+                    }
+                } else {
+                    eprintln!("[tailscale] createWakelock: {e}");
+                }
+            }
         }
     }
 
@@ -1021,6 +1134,8 @@ impl TailscaleManager {
         if self.updating.load(Ordering::SeqCst) {
             return Err("update in progress".into());
         }
+        self.idle_paused.store(false, Ordering::SeqCst);
+        *self.idle_since.lock().unwrap() = None;
         self.running.store(true, Ordering::SeqCst);
         self.ensure_supervisor();
         self.wake_supervisor();
@@ -1050,6 +1165,8 @@ impl TailscaleManager {
             config::save(&cfg)?;
             cfg.hold_wakelock
         };
+        self.idle_paused.store(false, Ordering::SeqCst);
+        *self.idle_since.lock().unwrap() = None;
         if hold {
             self.acquire_wakelock();
         }
@@ -1070,6 +1187,8 @@ impl TailscaleManager {
         if self.child_pid.lock().unwrap().is_some() {
             let _ = cli(&["down"], 15);
         }
+        self.idle_paused.store(false, Ordering::SeqCst);
+        *self.idle_since.lock().unwrap() = None;
         self.running.store(false, Ordering::SeqCst);
         self.wake_supervisor();
         self.kill_child(libc::SIGTERM);
@@ -1136,6 +1255,95 @@ fn pref_args_for_mode(cfg: &TsConfig, verb: &str, gateway: bool) -> Vec<String> 
         args.push("--reset".to_string());
     }
     args
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum IdleAction {
+    StayRunning,
+    Pause,
+    StayPaused,
+    Resume,
+}
+
+fn evaluate_idle_policy(
+    currently_paused: bool,
+    timeout_mins: u32,
+    enrolled: bool,
+    login_in_progress: bool,
+    has_clients: bool,
+    idle_since: &mut Option<Instant>,
+    now: Instant,
+) -> IdleAction {
+    if timeout_mins == 0 || !enrolled || login_in_progress {
+        *idle_since = None;
+        return if currently_paused {
+            IdleAction::Resume
+        } else {
+            IdleAction::StayRunning
+        };
+    }
+    if has_clients {
+        *idle_since = None;
+        return if currently_paused {
+            IdleAction::Resume
+        } else {
+            IdleAction::StayRunning
+        };
+    }
+    if currently_paused {
+        return IdleAction::StayPaused;
+    }
+    let since = *idle_since.get_or_insert(now);
+    if now.saturating_duration_since(since) >= Duration::from_secs(timeout_mins as u64 * 60) {
+        IdleAction::Pause
+    } else {
+        IdleAction::StayRunning
+    }
+}
+
+fn has_reachable_neighbor(ip_neigh_output: &str) -> bool {
+    ip_neigh_output.lines().any(|line| {
+        let mut tokens = line.split_whitespace();
+        let Some(_ip) = tokens.next() else {
+            return false;
+        };
+        let state = line.split_whitespace().last().unwrap_or("");
+        matches!(state, "REACHABLE" | "DELAY" | "PROBE")
+    })
+}
+
+/// Returns true if any Wi-Fi station is associated on an active AP interface
+/// (`wlan*`) OR any local LAN/USB tethered neighbor is actively reachable on
+/// `br-lan` / `usb*` / `rndis*`.
+fn has_active_clients() -> bool {
+    if let Ok(entries) = std::fs::read_dir("/sys/class/net") {
+        for entry in entries.flatten() {
+            let name = entry.file_name();
+            let Some(iface) = name.to_str() else {
+                continue;
+            };
+            if iface.starts_with("wlan") {
+                if let Ok(out) = Command::new("iw").args([iface, "station", "dump"]).output() {
+                    if out.status.success()
+                        && String::from_utf8_lossy(&out.stdout)
+                            .lines()
+                            .any(|l| l.starts_with("Station "))
+                    {
+                        return true;
+                    }
+                }
+            }
+        }
+    }
+    if let Ok(out) = Command::new("ip")
+        .args(["neigh", "show", "dev", "br-lan"])
+        .output()
+    {
+        if out.status.success() && has_reachable_neighbor(&String::from_utf8_lossy(&out.stdout)) {
+            return true;
+        }
+    }
+    false
 }
 
 /// `connect_status` of `zwrt_data get_wwaniface` (or `wan_status` of
@@ -1377,8 +1585,14 @@ pub fn config_set(state: &AppState, body: &[u8]) -> (u16, Value) {
         return (409, json!({"ok":false,"error":"DNS and exit nodes require kernel gateway mode"}));
     }
 
+    let daemon_prefs_changed = candidate.hostname != current.hostname
+        || candidate.advertise_routes != current.advertise_routes
+        || candidate.tailscale_ssh != current.tailscale_ssh
+        || candidate.accept_routes != current.accept_routes
+        || candidate.accept_dns != current.accept_dns
+        || candidate.exit_node != current.exit_node;
     let daemon_up = mgr.child_pid.lock().unwrap().is_some();
-    if candidate.enabled && daemon_up && state_file_exists() {
+    if daemon_prefs_changed && candidate.enabled && daemon_up && state_file_exists() {
         let args = pref_args_for(&candidate, "set");
         let arg_refs: Vec<&str> = args.iter().map(|s| s.as_str()).collect();
         if let Err(e) = cli(&arg_refs, CLI_TIMEOUT_SECS) {
@@ -1387,7 +1601,7 @@ pub fn config_set(state: &AppState, body: &[u8]) -> (u16, Value) {
     }
 
     if let Err(e) = config::save(&candidate) {
-        if candidate.enabled && daemon_up && state_file_exists() {
+        if daemon_prefs_changed && candidate.enabled && daemon_up && state_file_exists() {
             let previous = pref_args_for(&current, "set");
             if cli(&previous.iter().map(String::as_str).collect::<Vec<_>>(), CLI_TIMEOUT_SECS).is_err() {
                 return (500, json!({"ok":false,"error":"Preferences could not be persisted or restored. Check the service before retrying."}));
@@ -1395,12 +1609,20 @@ pub fn config_set(state: &AppState, body: &[u8]) -> (u16, Value) {
         }
         return (500, json!({"ok":false,"error":e}));
     }
-    let (enabled, hold) = (candidate.enabled, candidate.hold_wakelock);
+    let (enabled, hold, idle_mins) = (
+        candidate.enabled,
+        candidate.hold_wakelock,
+        candidate.idle_timeout_mins,
+    );
     *current = candidate;
     drop(current);
 
+    *mgr.idle_since.lock().unwrap() = None;
     if enabled {
-        if hold {
+        if idle_mins == 0 && mgr.idle_paused.swap(false, Ordering::SeqCst) {
+            mgr.wake_supervisor();
+        }
+        if hold && !mgr.idle_paused.load(Ordering::SeqCst) {
             mgr.acquire_wakelock();
         } else {
             mgr.release_wakelock();
@@ -1939,5 +2161,108 @@ mod tests {
             localapi_status_at(&path, 1),
             Err(LocalApiError::Other(_))
         ));
+    }
+
+    #[test]
+    fn idle_policy_pauses_after_timeout_and_resumes_on_client_or_disable() {
+        let t0 = Instant::now();
+        let mut since = None;
+        // 0 clients starts countdown, does not pause immediately
+        assert_eq!(
+            evaluate_idle_policy(false, 10, true, false, false, &mut since, t0),
+            IdleAction::StayRunning
+        );
+        assert_eq!(since, Some(t0));
+        // Still running at 9m59s
+        assert_eq!(
+            evaluate_idle_policy(
+                false,
+                10,
+                true,
+                false,
+                false,
+                &mut since,
+                t0 + Duration::from_secs(599)
+            ),
+            IdleAction::StayRunning
+        );
+        // Pauses at 10m
+        assert_eq!(
+            evaluate_idle_policy(
+                false,
+                10,
+                true,
+                false,
+                false,
+                &mut since,
+                t0 + Duration::from_secs(600)
+            ),
+            IdleAction::Pause
+        );
+        // Stays paused with no clients
+        assert_eq!(
+            evaluate_idle_policy(
+                true,
+                10,
+                true,
+                false,
+                false,
+                &mut since,
+                t0 + Duration::from_secs(660)
+            ),
+            IdleAction::StayPaused
+        );
+        // Resumes immediately when a client connects
+        assert_eq!(
+            evaluate_idle_policy(
+                true,
+                10,
+                true,
+                false,
+                true,
+                &mut since,
+                t0 + Duration::from_secs(670)
+            ),
+            IdleAction::Resume
+        );
+        assert_eq!(since, None);
+        // Resumes immediately if idle timeout is turned off (0)
+        assert_eq!(
+            evaluate_idle_policy(true, 0, true, false, false, &mut since, t0),
+            IdleAction::Resume
+        );
+        // Never pauses during interactive login or before enrollment
+        assert_eq!(
+            evaluate_idle_policy(
+                false,
+                5,
+                false,
+                false,
+                false,
+                &mut since,
+                t0 + Duration::from_secs(900)
+            ),
+            IdleAction::StayRunning
+        );
+        assert_eq!(
+            evaluate_idle_policy(
+                false,
+                5,
+                true,
+                true,
+                false,
+                &mut since,
+                t0 + Duration::from_secs(900)
+            ),
+            IdleAction::StayRunning
+        );
+    }
+
+    #[test]
+    fn neighbor_parser_ignores_stale_and_failed_entries() {
+        let stale = "192.168.0.144 dev br-lan lladdr 4c:23:38:7c:04:d3 STALE\n192.168.0.145 dev br-lan FAILED\n";
+        assert!(!has_reachable_neighbor(stale));
+        let active = "192.168.0.144 dev br-lan lladdr 4c:23:38:7c:04:d3 REACHABLE\n";
+        assert!(has_reachable_neighbor(active));
     }
 }

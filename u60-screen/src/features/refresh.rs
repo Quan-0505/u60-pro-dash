@@ -21,7 +21,8 @@ fn policy(id: &str) -> Option<Policy> {
         "resources" | "wan" | "traffic" | "sim-info" | "wifi-share" | "wifi-home" => Poll(30),
         "operators" | "signal-test" | "speedtest" | "tailscale-version" | "agent-update"
         | "esim-profiles" | "esim-download" | "stk" => Task,
-        "wifi2" | "wifi5" | "guest" | "lan" | "mobile-data" | "network-mode" | "apn" | "usage"
+        "wifi-master" | "wifi2" | "wifi5" | "guest" | "lan" | "mobile-data" | "network-mode"
+        | "apn" | "usage"
         | "oos" | "watchdog" | "nr-bands" | "lte-bands" | "nr-lock" | "lte-lock" | "neighbors"
         | "stc" | "firewall" | "nat" | "dmz" | "upnp" | "ports" | "qos" | "vpn" | "ttl"
         | "domain" | "dns-config" | "doh" | "dns-cache" | "tailscale-config" | "sms-compose"

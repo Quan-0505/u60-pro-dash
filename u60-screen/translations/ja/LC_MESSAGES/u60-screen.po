@@ -20,6 +20,12 @@ msgstr "U60 · 画面プレビュー"
 msgid "Wi-Fi 可用"
 msgstr "Wi-Fi 利用可能"
 
+msgid "Wi-Fi 总开关"
+msgstr "Wi-Fi マスタースイッチ"
+
+msgid "Wi-Fi 设置"
+msgstr "Wi-Fi 設定"
+
 msgid "Wi-Fi 连接卡片"
 msgstr "Wi-Fi 接続カード"
 
@@ -35,6 +41,12 @@ msgstr "↓ 下り / Mbps"
 msgid "−2 分钟"
 msgstr "−2 分"
 
+msgid "今日流量 {0} · 本月流量 {1}"
+msgstr "本日 {0} · 今月 {1}"
+
+msgid "从下方向上滑动解锁"
+msgstr "上にスワイプして解除"
+
 msgid "优先响应与处理能力，温度和功耗可能上升。"
 msgstr "応答性を優先。温度と消費電力が上がる場合があります。"
 
@@ -46,6 +58,9 @@ msgstr "電波の詳細"
 
 msgid "修改解锁密码"
 msgstr "解除 PIN を変更"
+
+msgid "停止等待"
+msgstr "待機を中止"
 
 msgid "关闭密码解锁"
 msgstr "PIN ロックを無効にする"
@@ -92,8 +107,14 @@ msgstr "パインロックを解除"
 msgid "屏幕亮度  "
 msgstr "画面の明るさ  "
 
+msgid "已关闭 · 无线热点已停用"
+msgstr "オフ・無線ホットスポット停止中"
+
 msgid "已开启 · 6–12 位数字密码"
 msgstr "有効 · 6～12桁の PIN"
+
+msgid "已开启 · 控制 2.4G / 5G 热点"
+msgstr "オン・2.4G / 5G ホットスポットを制御"
 
 msgid "已联网"
 msgstr "接続中"
@@ -176,14 +197,14 @@ msgstr "このページで観測した直近2分間の記録です。切断・�
 msgid "机身屏幕使用本机后台账号连接。也可以输入后台密码重新登录。"
 msgstr "ボディスクリーンで本機のバックドアのアカウントを接続します. また,バックアップパスワードを入力してログインすることもできます."
 
-msgid "松开继续"
-msgstr "指を離して続行"
-
 msgid "极速：不区分应用优先级，按需使用带宽。"
 msgstr "最高速：アプリを優先せず、必要に応じて帯域を使用。"
 
 msgid "查看设置与操作需要密码"
 msgstr "設定と操作には PIN が必要"
+
+msgid "正在处理，请稍候…"
+msgstr "処理中…"
 
 msgid "正在积累趋势"
 msgstr "データを収集中"
@@ -214,6 +235,9 @@ msgstr "デモ"
 
 msgid "演示运营商"
 msgstr "サンプル通信事業者"
+
+msgid "点按数值可直接输入"
+msgstr "数値をタップして入力"
 
 msgid "熄屏"
 msgstr "画面を消灯"
@@ -308,9 +332,6 @@ msgstr "選択すると適用"
 msgid "重新连接"
 msgstr "再接続"
 
-msgid "长按 1 秒解锁"
-msgstr "1 秒長押しで解除"
-
 msgid "降低处理频率，吞吐能力可能下降。"
 msgstr "CPU 周波数を抑制。転送性能が低下する場合があります。"
 
@@ -334,6 +355,3 @@ msgstr "ホームのレイアウト"
 
 msgid "高铁优化"
 msgstr "高速鉄道向け最適化"
-
-msgid "今日流量 {0} · 本月流量 {1}"
-msgstr "今日 {0} · 今月 {1}"

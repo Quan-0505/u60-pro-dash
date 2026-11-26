@@ -20,6 +20,12 @@ msgstr "U60 · Screen preview"
 msgid "Wi-Fi 可用"
 msgstr "Wi-Fi available"
 
+msgid "Wi-Fi 总开关"
+msgstr "Wi-Fi master switch"
+
+msgid "Wi-Fi 设置"
+msgstr "Wi-Fi"
+
 msgid "Wi-Fi 连接卡片"
 msgstr "Wi-Fi connection card"
 
@@ -35,6 +41,12 @@ msgstr "↓ Download / Mbps"
 msgid "−2 分钟"
 msgstr "−2 min"
 
+msgid "今日流量 {0} · 本月流量 {1}"
+msgstr "Today {0} · This month {1}"
+
+msgid "从下方向上滑动解锁"
+msgstr "Swipe up to unlock"
+
 msgid "优先响应与处理能力，温度和功耗可能上升。"
 msgstr "Prioritize responsiveness; heat and power use may increase."
 
@@ -46,6 +58,9 @@ msgstr "Radio details"
 
 msgid "修改解锁密码"
 msgstr "Change unlock PIN"
+
+msgid "停止等待"
+msgstr "Stop waiting"
 
 msgid "关闭密码解锁"
 msgstr "Disable PIN lock"
@@ -92,8 +107,14 @@ msgstr "PIN unlock"
 msgid "屏幕亮度  "
 msgstr "Brightness  "
 
+msgid "已关闭 · 无线热点已停用"
+msgstr "Off · Wireless hotspots disabled"
+
 msgid "已开启 · 6–12 位数字密码"
 msgstr "Enabled · 6–12 digit PIN"
+
+msgid "已开启 · 控制 2.4G / 5G 热点"
+msgstr "On · Controls 2.4G / 5G hotspots"
 
 msgid "已联网"
 msgstr "Connected"
@@ -176,14 +197,14 @@ msgstr "Observed on this page over the last 2 minutes. Gaps indicate disconnecti
 msgid "机身屏幕使用本机后台账号连接。也可以输入后台密码重新登录。"
 msgstr "The body screen connects to the home computer's backend account. You can also enter the backend password and log in again."
 
-msgid "松开继续"
-msgstr "Release to continue"
-
 msgid "极速：不区分应用优先级，按需使用带宽。"
 msgstr "Top speed: use bandwidth as needed, without app priority."
 
 msgid "查看设置与操作需要密码"
 msgstr "PIN required for settings"
+
+msgid "正在处理，请稍候…"
+msgstr "Working…"
 
 msgid "正在积累趋势"
 msgstr "Collecting samples"
@@ -214,6 +235,9 @@ msgstr "Demo"
 
 msgid "演示运营商"
 msgstr "Example Mobile"
+
+msgid "点按数值可直接输入"
+msgstr "Tap value to type"
 
 msgid "熄屏"
 msgstr "Screen off"
@@ -308,9 +332,6 @@ msgstr "Settings apply automatically."
 msgid "重新连接"
 msgstr "Reconnect"
 
-msgid "长按 1 秒解锁"
-msgstr "Hold 1 second to unlock"
-
 msgid "降低处理频率，吞吐能力可能下降。"
 msgstr "Reduce CPU frequency; throughput may decrease."
 
@@ -334,6 +355,3 @@ msgstr "Home layout"
 
 msgid "高铁优化"
 msgstr "High-speed rail optimization"
-
-msgid "今日流量 {0} · 本月流量 {1}"
-msgstr "Today {0} · This month {1}"

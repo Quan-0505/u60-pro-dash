@@ -125,5 +125,10 @@ export component StatusBar inherits Rectangle {
             color: Palette.muted; vertical-alignment: center; horizontal-alignment: right;
         }
     }
-    TouchArea { enabled: root.interactive && !root.locked; accessible-role: button; accessible-label: @tr("快捷控制"); clicked => { root.clicked(); } }
+    TouchArea {
+        x: 64px; width: max(0px, parent.width - 64px);
+        enabled: root.interactive && !root.locked;
+        accessible-role: button; accessible-label: @tr("快捷控制");
+        clicked => { root.clicked(); }
+    }
 }

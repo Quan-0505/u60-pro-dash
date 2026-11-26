@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Build and deploy this fork's agent and native screen as a recoverable pair."""
 import argparse
+import getpass
 import hashlib
 import json
 import os
@@ -12,18 +13,26 @@ import shutil
 import struct
 import subprocess
 import sys
+import tempfile
 import time
+import urllib.error
+import urllib.request
 
 REPO = Path(__file__).resolve().parents[2]
 REMOTE = "/data/u60-dash"
 TARGET = "aarch64-unknown-linux-musl"
 FILES = ("zte-agent", "u60-screen", "service.sh", "manage.sh")
 MARKER = "__U60_DASH_RC__"
-# Audited predecessor: same release/lock/recovery protocol; only the exporter
-# fallback changes. Unknown or locally modified managers still require restore.
+DROPBEAR_IPK_URL = (
+    "https://downloads.openwrt.org/releases/23.05.4/targets/armsr/armv8/"
+    "packages/dropbear_2022.83-1_aarch64_generic.ipk"
+)
+# Audited predecessors: same release/lock/recovery protocol. Unknown or locally
+# modified managers still require restore.
 COMPATIBLE_MANAGERS = {
     "e8e7bc1d9c6167686b6f0f4669eae81e903d3f1fe7dec73ac14923ab1694299d",
     "152743cd07d21704f57cc27d03126e35c7d8e4dc71f2c9ce7922c135fc674dcb",
+    "707119b317039d17d22213c9ca6dc1c6f3db0ad3f7f82e864d6b2eb40de4dcc7",
 }
 
 class Failure(RuntimeError):
@@ -157,29 +166,69 @@ def package(args):
         raise Failure("部署包缺失或校验失败；请运行 bash dash.sh build。") from None
     return root, identity
 
+def format_agent_env(password):
+    if not password or "\n" in password or "\r" in password:
+        raise Failure("Agent 密码不能为空，且不能包含换行符。")
+    escaped = password.replace("'", "'\\''")
+    return f"# Private on-device agent environment. Do not publish.\nexport ZTE_AGENT_PASSWORD='{escaped}'\n"
+
+def prompt_agent_password():
+    env_pw = os.environ.get("ZTE_AGENT_PASSWORD")
+    if env_pw is not None:
+        return env_pw
+    if not sys.stdin.isatty():
+        raise Failure("首次安装需要设置 Web/Agent 登录密码；非交互环境请通过环境变量 ZTE_AGENT_PASSWORD 传入。")
+    first = getpass.getpass("首次安装，请设置 Web/Agent 登录密码：")
+    if not first or "\n" in first or "\r" in first:
+        raise Failure("Agent 密码不能为空，且不能包含换行符。")
+    second = getpass.getpass("再次确认密码：")
+    if first != second:
+        raise Failure("两次输入的密码不一致。")
+    return first
+
+def push_text(connection, content, destination, mode="600"):
+    fd, tmp_path = tempfile.mkstemp(prefix="u60-dash-")
+    try:
+        os.chmod(tmp_path, 0o600)
+        with os.fdopen(fd, "w", encoding="utf-8") as handle:
+            handle.write(content)
+        connection.push(tmp_path, destination)
+        connection.remote(f"chmod {mode} {shlex.quote(destination)}")
+    finally:
+        try:
+            os.unlink(tmp_path)
+        except OSError:
+            pass
+
 def check(connection):
     script = """
 set -eu
 test "$(id -u)" = 0
 test "$(uname -m)" = aarch64
-test -x /data/zte-agent
-test -s /data/local/tmp/start_zte_agent.sh
 test -c /dev/dri/card0
 test -r /sys/class/leds/led:lcd/brightness
 test -x /etc/init.d/zte_topsw_devui
 test ! -e /tmp/u60-native-screen-trial
 test ! -s /data/open-u60/update/pending
-grep -qF /data/local/tmp/start_zte_agent.sh /etc/rc.local
+test -r /etc/rc.local
 for tool in flock sha256sum readlink nohup ubus; do command -v "$tool" >/dev/null; done
 # Exercise the BusyBox-compatible flags, using a read-only descriptor.
-exec 8</data/local/tmp/start_zte_agent.sh
+exec 8</etc/rc.local
 flock -s -n 8
 flock -u 8
 exec 8<&-
 ubus call zwrt_topsw_daemon.sync get_sync_info '{}' | grep -q '"noSyncModuleName"[[:space:]]*:[[:space:]]*"sync success"'
 if test -e /data/u60-dash; then test -d /data/u60-dash && test ! -L /data/u60-dash; fi
-printf 'device=root ARM64; boot=ready; recovery=available\n'
-if test -L /data/zte-agent; then printf 'existing_layout=linked\n'; else printf 'existing_layout=direct\n'; fi
+if test -x /data/zte-agent && test -s /data/local/tmp/start_zte_agent.sh && grep -qF /data/local/tmp/start_zte_agent.sh /etc/rc.local; then
+    printf 'device=root ARM64; boot=ready; recovery=available\n'
+    if test -L /data/zte-agent; then printf 'existing_layout=linked\n'; else printf 'existing_layout=direct\n'; fi
+elif test ! -e /data/zte-agent && test ! -s /data/local/tmp/start_zte_agent.sh; then
+    printf 'device=root ARM64; boot=fresh; recovery=factory\n'
+    printf 'existing_layout=fresh\n'
+else
+    echo 'Detected incomplete legacy agent files (/data/zte-agent or start_zte_agent.sh); clean them up or restore before installing.' >&2
+    exit 1
+fi
 df -Pk /data | tail -1 | awk '{print "free_kib=" $4}'
 """
     result = connection.remote(script)
@@ -194,9 +243,224 @@ def inactive_manager_condition():
         f"test ! -e /tmp/u60-dash-run && test ! -e {REMOTE}/pending "
         f"&& test ! -e {REMOTE}/enabled "
         f"&& (test ! -e {REMOTE}/current || test \"$(cat {REMOTE}/current)\" = none) "
-        f"&& test -s /data/local/tmp/start_zte_agent.sh "
-        f"&& ! grep -qF {REMOTE}/manage.sh /data/local/tmp/start_zte_agent.sh"
+        f"&& (test ! -s /data/local/tmp/start_zte_agent.sh "
+        f"|| ! grep -qF {REMOTE}/manage.sh /data/local/tmp/start_zte_agent.sh)"
     )
+
+def bootstrap_fresh(connection):
+    """Prepare private agent.env, baseline health.json, and rc.local boot hook on a fresh device."""
+    has_env = connection.remote(f"if test -s {REMOTE}/agent.env; then echo yes; else echo no; fi")
+    if has_env != "yes" or os.environ.get("ZTE_AGENT_PASSWORD") is not None:
+        password = prompt_agent_password()
+        push_text(connection, format_agent_env(password), f"{REMOTE}/agent.env", mode="600")
+        print("已写入设备端登录凭据（/data/u60-dash/agent.env）。", flush=True)
+    else:
+        print("复用设备已有的 /data/u60-dash/agent.env 登录凭据。", flush=True)
+    has_health = connection.remote(f"if test -s {REMOTE}/health.json; then echo yes; else echo no; fi")
+    if has_health != "yes":
+        baseline = json.dumps({"tailscale": False, "gateway": False, "proxy": False, "proxy_capture": None}) + "\n"
+        push_text(connection, baseline, f"{REMOTE}/health.json", mode="600")
+    connection.remote("""
+set -eu
+mkdir -p /data/local/tmp
+RC_LINE='sh /data/local/tmp/start_zte_agent.sh'
+if ! grep -qxF -- "$RC_LINE" /etc/rc.local; then
+    if grep -q '^exit 0' /etc/rc.local; then
+        sed -i "/^exit 0/i $RC_LINE" /etc/rc.local
+    else
+        printf '%s\n' "$RC_LINE" >> /etc/rc.local
+    fi
+fi
+grep -qxF -- "$RC_LINE" /etc/rc.local
+""")
+
+def setup_ssh(connection, args):
+    """Install and enable Dropbear SSH on the device for wireless deploys."""
+    pubkey_path = Path(args.pubkey).expanduser() if args.pubkey else Path.home() / ".ssh/id_ed25519.pub"
+    if not pubkey_path.is_file():
+        if args.pubkey:
+            raise Failure(f"找不到指定的公钥文件：{pubkey_path}")
+        priv = Path.home() / ".ssh/id_ed25519"
+        if not priv.exists():
+            priv.parent.mkdir(parents=True, exist_ok=True)
+            subprocess.run(["ssh-keygen", "-t", "ed25519", "-f", str(priv), "-N", ""], check=True)
+        if not pubkey_path.is_file():
+            raise Failure(f"未能生成 SSH 公钥：{pubkey_path}")
+    pubkey = pubkey_path.read_text(encoding="utf-8").strip()
+    if not pubkey or "\n" in pubkey or "\r" in pubkey:
+        raise Failure(f"SSH 公钥格式无效：{pubkey_path}")
+
+    has_dropbear = connection.remote("if test -x /usr/sbin/dropbear; then echo yes; else echo no; fi")
+    if has_dropbear != "yes":
+        print("设备未安装 Dropbear，正在下载 OpenWrt 23.05.4 ARM64 安装包…", flush=True)
+        fd, ipk_path = tempfile.mkstemp(prefix="u60-dropbear-", suffix=".ipk")
+        os.close(fd)
+        try:
+            urllib.request.urlretrieve(DROPBEAR_IPK_URL, ipk_path)
+            connection.push(ipk_path, "/tmp/dropbear.ipk")
+            connection.remote("opkg install /tmp/dropbear.ipk >/dev/null 2>&1 || true; rm -f /tmp/dropbear.ipk; test -x /usr/sbin/dropbear")
+        except (urllib.error.URLError, OSError) as error:
+            raise Failure(f"下载 Dropbear 失败：{error}") from None
+        finally:
+            try:
+                os.unlink(ipk_path)
+            except OSError:
+                pass
+
+    push_text(connection, pubkey + "\n", "/tmp/u60-dash-pubkey.pub", mode="600")
+    port = args.port
+    connection.remote(f"""
+set -eu
+mkdir -p /etc/dropbear /data/local/tmp
+chmod 700 /etc/dropbear
+touch /etc/dropbear/authorized_keys
+chmod 600 /etc/dropbear/authorized_keys
+PUBKEY=$(cat /tmp/u60-dash-pubkey.pub)
+rm -f /tmp/u60-dash-pubkey.pub
+if ! grep -qxF -- "$PUBKEY" /etc/dropbear/authorized_keys; then
+    printf '%s\n' "$PUBKEY" >> /etc/dropbear/authorized_keys
+fi
+cat >/data/local/tmp/start_dropbear.sh.new <<'DBBOOT'
+#!/bin/sh
+/usr/sbin/dropbear -p {port} -R
+DBBOOT
+chmod 700 /data/local/tmp/start_dropbear.sh.new
+mv -f /data/local/tmp/start_dropbear.sh.new /data/local/tmp/start_dropbear.sh
+RC_LINE='sh /data/local/tmp/start_dropbear.sh'
+if ! grep -qxF -- "$RC_LINE" /etc/rc.local; then
+    if grep -q '^exit 0' /etc/rc.local; then
+        sed -i "/^exit 0/i $RC_LINE" /etc/rc.local
+    else
+        printf '%s\n' "$RC_LINE" >> /etc/rc.local
+    fi
+fi
+grep -qxF -- "$RC_LINE" /etc/rc.local
+if ! pidof dropbear >/dev/null 2>&1; then
+    sh /data/local/tmp/start_dropbear.sh
+fi
+""")
+    print(f"Dropbear SSH 已配置并启动（端口 {port}）。")
+    print(f"连接测试：ssh -p {port} root@{args.gateway}")
+    print(f"无线部署：bash dash.sh install --ssh root@{args.gateway} --port {port}")
+
+def _load_unlock():
+    dash_dir = str(Path(__file__).resolve().parent)
+    if dash_dir not in sys.path:
+        sys.path.insert(0, dash_dir)
+    import unlock
+    return unlock
+
+def enable_adb(args):
+    """Enable root ADB on both unlocked (B27) and locked (B31) firmwares."""
+    gateway = args.gateway
+    url = f"http://{gateway}/ubus/"
+    password = os.environ.get("ZTE_ROUTER_PASSWORD") or os.environ.get("ROUTER_PW")
+    if password is None:
+        if not sys.stdin.isatty():
+            raise Failure("请通过环境变量 ZTE_ROUTER_PASSWORD 提供路由器原厂管理密码。")
+        password = getpass.getpass(f"路由器原厂管理密码 ({gateway})：")
+    if not password:
+        raise Failure("路由器管理密码不能为空。")
+
+    suffix = args.suffix or os.environ.get("ZTE_BACKUP_SUFFIX")
+    if suffix or args.dry_run:
+        if not suffix:
+            if not sys.stdin.isatty():
+                raise Failure("请通过 --suffix 或环境变量 ZTE_BACKUP_SUFFIX 提供配置备份密钥后缀。")
+            suffix = getpass.getpass("配置备份密钥后缀（国行 B31 为 zteSDX75*11Mbb2@1）：")
+        if not suffix:
+            raise Failure("配置备份密钥后缀不能为空。")
+        unlock = _load_unlock()
+        try:
+            unlock.run_unlock(
+                gateway,
+                password,
+                suffix,
+                dry_run=args.dry_run,
+                yes=args.yes,
+                work=args.keep_work,
+            )
+        except unlock.UnlockError as error:
+            raise Failure(str(error)) from None
+        if not args.dry_run:
+            print("重启完成后可运行：adb wait-for-device && adb devices && adb shell id")
+            print("确认输出 uid=0(root) 后，继续运行 bash dash.sh check 与 bash dash.sh install。")
+        return
+
+    def ubus_rpc(session, obj, method, params):
+        payload = json.dumps([
+            {"jsonrpc": "2.0", "id": 1, "method": "call", "params": [session, obj, method, params]}
+        ]).encode("utf-8")
+        req = urllib.request.Request(url, data=payload, headers={"Content-Type": "application/json"})
+        try:
+            with urllib.request.urlopen(req, timeout=10) as resp:
+                data = json.loads(resp.read().decode("utf-8"))
+        except (urllib.error.URLError, OSError, ValueError) as error:
+            raise Failure(f"无法连接路由器 {gateway}：{error}") from None
+        entry = data[0] if isinstance(data, list) and data else {}
+        result = entry.get("result")
+        if not isinstance(result, list) or not result or not isinstance(result[0], int):
+            raise Failure(f"{obj}.{method} 返回格式异常。")
+        if result[0] != 0:
+            return result[0], {}
+        return 0, result[1] if len(result) > 1 and isinstance(result[1], dict) else {}
+
+    anon = "00000000000000000000000000000000"
+    code, info = ubus_rpc(anon, "zwrt_web", "web_login_info", {})
+    salt = info.get("zte_web_sault", "")
+    if code != 0 or not salt:
+        raise Failure(f"获取登录盐值失败（ubus code={code}）；请确认已连接路由器 {gateway}。")
+    h1 = hashlib.sha256(password.encode("utf-8")).hexdigest().upper()
+    h2 = hashlib.sha256((h1 + salt).encode("utf-8")).hexdigest().upper()
+    code, login_data = ubus_rpc(anon, "zwrt_web", "web_login", {"password": h2})
+    sid = login_data.get("ubus_rpc_session", "")
+    if code != 0 or not sid or sid == anon:
+        raise Failure("原厂后台登录失败，请检查路由器管理密码。")
+
+    code, _ = ubus_rpc(sid, "zwrt_bsp.usb", "set", {"mode": "debug"})
+    if code != 0:
+        print(f"当前固件拒绝了 zwrt_bsp.usb 调试切换（ubus code={code}），将自动转入配置备份/恢复解锁流程（适用于 B31 等较新固件）。", flush=True)
+        if not sys.stdin.isatty():
+            raise Failure(
+                "非交互环境请加上 --suffix 参数（国行 B31 示例）：\n"
+                "  bash dash.sh enable-adb --suffix 'zteSDX75*11Mbb2@1'"
+            )
+        suffix = getpass.getpass("请输入配置备份密钥后缀（国行 B31 为 zteSDX75*11Mbb2@1）：")
+        if not suffix:
+            raise Failure("未提供配置备份密钥后缀，已取消。")
+        unlock = _load_unlock()
+        try:
+            unlock.run_unlock(
+                gateway,
+                password,
+                suffix,
+                dry_run=args.dry_run,
+                yes=args.yes,
+                work=args.keep_work,
+            )
+        except unlock.UnlockError as error:
+            raise Failure(str(error)) from None
+        print("重启完成后可运行：adb wait-for-device && adb devices && adb shell id")
+        print("确认输出 uid=0(root) 后，继续运行 bash dash.sh check 与 bash dash.sh install。")
+        return
+
+    mode = "unknown"
+    for _ in range(3):
+        time.sleep(1)
+        rc, listing = ubus_rpc(sid, "zwrt_bsp.usb", "list", {})
+        if rc == 0 and isinstance(listing.get("mode"), str):
+            mode = listing["mode"]
+            if mode == "debug":
+                break
+    if mode != "debug":
+        raise Failure(f"路由器上报 USB 模式为 '{mode}'（非 debug），未能开启 ADB。")
+    print("路由器已切换至 USB debug 模式，正在等待 ADB 设备上线…", flush=True)
+    adb = ["adb"] + (["-s", args.serial] if args.serial else [])
+    try:
+        subprocess.run(adb + ["wait-for-device"], timeout=30, check=True)
+    except (subprocess.TimeoutExpired, subprocess.CalledProcessError, FileNotFoundError) as error:
+        raise Failure(f"等待 ADB 设备超时或失败：{error}") from None
+    print("ADB 已连接，现在可以直接运行 bash dash.sh check 和 bash dash.sh install。")
 
 def replace_inactive_manager(connection, source):
     # Recheck under the operation lock: another installer may have started
@@ -232,10 +496,35 @@ sync
 mv -f {REMOTE}/manage.sh.new {REMOTE}/manage.sh
 """)
 
+def prune_old_releases(connection):
+    """Keep only the active release (`current`), rollback target (`previous`),
+    and any in-flight `pending` release so /data never fills up across deploys."""
+    connection.remote(f"""
+cur=$(sed -n '1p' {REMOTE}/current 2>/dev/null || true)
+prev=$(sed -n '1p' {REMOTE}/previous 2>/dev/null || true)
+pend=$(sed -n '1p' {REMOTE}/pending 2>/dev/null || true)
+[ -n "$cur" ] || exit 0
+removed=0
+for d in {REMOTE}/releases/*; do
+    [ -d "$d" ] || continue
+    name=$(basename "$d")
+    case "$name" in
+        "$cur"|"$prev"|"$pend"|*.incoming-*) continue ;;
+    esac
+    rm -rf "$d"
+    removed=$((removed + 1))
+done
+if [ "$removed" -gt 0 ]; then
+    echo "pruned_old_releases=$removed"
+fi
+""")
+
 def install(connection, args):
     root, identity = package(args)
-    check(connection)
+    check_out = check(connection)
     connection.remote(f"umask 077; mkdir -p {REMOTE}/releases; chmod 700 {REMOTE} {REMOTE}/releases")
+    if "existing_layout=fresh" in check_out:
+        bootstrap_fresh(connection)
     existing = connection.remote(f"if test -s {REMOTE}/manage.sh; then sha256sum {REMOTE}/manage.sh; fi")
     compatible = None
     if existing and existing.split()[0] != digest(root / "manage.sh"):
@@ -275,6 +564,7 @@ def install(connection, args):
         if exit_code and exit_code.group(1) != "0":
             raise Failure("安装管理器未完成；设备端原因见 /data/u60-dash/install.log。\n" + state)
         if f"selected={identity}" in state and "trial=none" in state and "screen_frame=ready" in state and "agent=running" in state:
+            prune_old_releases(connection)
             print(state)
             print("两个程序已部署并通过健康检查。", flush=True)
             return
@@ -284,10 +574,21 @@ def install(connection, args):
 
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("command", choices=["build", "check", "install", "status", "start", "stop", "rollback", "restore", "help"], nargs="?", default="help")
+    parser.add_argument(
+        "command",
+        choices=["build", "check", "install", "status", "start", "stop", "rollback", "restore", "setup-ssh", "enable-adb", "help"],
+        nargs="?",
+        default="help",
+    )
     parser.add_argument("--ssh", help="root@设备地址；默认使用 ADB")
     parser.add_argument("--port", type=int, default=2222)
     parser.add_argument("--serial", default=os.environ.get("ANDROID_SERIAL"), help="ADB 设备序列号")
+    parser.add_argument("--gateway", default="192.168.0.1", help="路由器管理地址（默认 192.168.0.1）")
+    parser.add_argument("--pubkey", help="setup-ssh 使用的 SSH 公钥路径（默认 ~/.ssh/id_ed25519.pub）")
+    parser.add_argument("--suffix", help="enable-adb 用于 B31 等新固件的配置备份密钥后缀（或 ZTE_BACKUP_SUFFIX 环境变量）")
+    parser.add_argument("--dry-run", action="store_true", help="enable-adb 仅下载、解密并生成补丁包，不上传也不重启")
+    parser.add_argument("--yes", action="store_true", help="enable-adb 跳过上传前交互确认")
+    parser.add_argument("--keep-work", help="enable-adb 中间文件保存目录")
     parser.add_argument("--artifacts", default=str(REPO / "target/dash"))
     parser.add_argument("--no-build", action="store_true", help="安装已经通过 manifest 校验的部署包")
     parser.add_argument("--offline", action="store_true", help="Cargo 离线构建")
@@ -296,10 +597,19 @@ def main(argv=None):
         parser.error("SSH 端口无效")
     if args.command == "help":
         parser.print_help()
-        print("\n常用：bash dash.sh check；bash dash.sh install；bash dash.sh status\nstop：恢复原厂屏幕，保留后台；start：重新启动两个程序。\nrollback：恢复上一组；restore：恢复首次安装前的后台及启动文件。")
+        print(
+            "\n常用：bash dash.sh check；bash dash.sh install（支持全新设备首次安装与升级）；bash dash.sh status\n"
+            "enable-adb：一键开启设备 root ADB（B31 等新固件加 --suffix 'zteSDX75*11Mbb2@1'，B27 及更早可直接运行）。\n"
+            "setup-ssh：在设备安装并启用 Dropbear SSH（默认端口 2222），用于无线部署。\n"
+            "stop：恢复原厂屏幕，保留后台；start：重新启动两个程序。\n"
+            "rollback：恢复上一组；restore：恢复到首次安装前状态（全新设备将清理启动钩子并回到原厂）。"
+        )
         return 0
     if args.command == "build":
         build(args)
+        return 0
+    if args.command == "enable-adb":
+        enable_adb(args)
         return 0
     connection = Connection(args)
     if args.command == "check":
@@ -308,6 +618,8 @@ def main(argv=None):
         if not args.no_build:
             build(args)
         install(connection, args)
+    elif args.command == "setup-ssh":
+        setup_ssh(connection, args)
     elif args.command == "status":
         print(connection.remote(f"if test -s {REMOTE}/manage.sh; then sh {REMOTE}/manage.sh status; else echo 'paired_deployment=not_installed'; fi"))
     else:

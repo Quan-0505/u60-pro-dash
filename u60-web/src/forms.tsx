@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { api, type ObjectData } from "./api";
+import { ApiError, api, type ObjectData } from "./api";
 import { useResource, useSession } from "./live";
 import { useMutation } from "./mutations";
 import {
@@ -37,6 +37,9 @@ export type FormSpec = {
   readMethod?: string;
   readBody?: unknown;
   write?: string;
+  asyncWrite?: string;
+  asyncStatus?: string;
+  scope?: string;
   method?: string;
   fields: FormField[];
   decode?: (data: ObjectData) => ObjectData;
@@ -96,6 +99,94 @@ export const field = (
 const string = (value: unknown) =>
   value === undefined || value === null ? "" : String(value);
 const same = (a: unknown, b: unknown) => string(a) === string(b);
+
+function waitAbortable(ms: number, signal?: AbortSignal) {
+  return new Promise<void>((resolve, reject) => {
+    if (signal?.aborted) {
+      reject(new DOMException("Cancelled", "AbortError"));
+      return;
+    }
+    const timer = setTimeout(() => {
+      signal?.removeEventListener("abort", onAbort);
+      resolve();
+    }, ms);
+    const onAbort = () => {
+      clearTimeout(timer);
+      reject(new DOMException("Cancelled", "AbortError"));
+    };
+    signal?.addEventListener("abort", onAbort, { once: true });
+  });
+}
+
+export async function submitAsyncApply(options: {
+  write: string;
+  fallbackWrite?: string;
+  statusPath: string;
+  method?: string;
+  body: unknown;
+  timeout?: number;
+  signal?: AbortSignal;
+  onStatus?: (message: string) => void;
+}) {
+  const method = options.method || "PUT";
+  let reply: ObjectData;
+  try {
+    reply = await api(options.write, {
+      method,
+      body: options.body,
+      timeout: 15000,
+      signal: options.signal,
+    });
+  } catch (e) {
+    if (e instanceof ApiError && e.status === 404 && options.fallbackWrite) {
+      await api(options.fallbackWrite, {
+        method,
+        body: options.body,
+        timeout: options.timeout || 90000,
+        signal: options.signal,
+      });
+      return;
+    }
+    throw e;
+  }
+  if (reply?.verified === true) return;
+  const jobId = reply?.job_id;
+  options.onStatus?.("Applying and waiting for router…");
+  const deadline = Date.now() + Math.max(options.timeout || 70000, 15000);
+  let first = true;
+  while (Date.now() < deadline) {
+    await waitAbortable(first ? 350 : 1200, options.signal);
+    first = false;
+    try {
+      const status = await api(options.statusPath, {
+        timeout: 4000,
+        signal: options.signal,
+      });
+      if (jobId !== undefined && status?.job_id && status.job_id !== jobId) {
+        if (status.state === "verified" || status.state === "idle") return;
+      }
+      if (status?.state === "verified") return;
+      if (status?.state === "failed") {
+        throw new Error(
+          status.error || "The router has not confirmed the change.",
+        );
+      }
+      if (status?.state === "idle" && !status?.job_id) return;
+      options.onStatus?.("Applying and waiting for router…");
+    } catch (e) {
+      if ((e as Error)?.name === "AbortError") throw e;
+      if (e instanceof ApiError && e.status === 0) {
+        options.onStatus?.("Reconnecting to router…");
+        continue;
+      }
+      throw e;
+    }
+  }
+  throw new Error(
+    "The change could not be verified. Check the current state before trying again.",
+  );
+}
+
 export function SettingsForm({
   spec,
   onApplied,
@@ -109,16 +200,22 @@ export function SettingsForm({
   });
   const { epoch } = useSession();
   const mutation = useMutation();
+  const scope = spec.scope || "global";
+  const scopeBusy = mutation.isBusy(scope);
   const [base, setBase] = useState<ObjectData>(),
     [draft, setDraft] = useState<ObjectData>({}),
     [error, setError] = useState<Error>(),
-    [message, setMessage] = useState("");
+    [message, setMessage] = useState(""),
+    [applying, setApplying] = useState(false);
   const dirty = useRef(new Set<string>()),
-    active = useRef(true);
+    active = useRef(true),
+    abortRef = useRef<AbortController | null>(null),
+    lastAttempt = useRef<{ f: FormField; value: string } | null>(null);
   useEffect(() => {
     active.current = true;
     return () => {
       active.current = false;
+      abortRef.current?.abort();
     };
   }, []);
   useEffect(() => {
@@ -144,10 +241,12 @@ export function SettingsForm({
     }
   }, [resource.data]);
   const apply = async (f: FormField, value: string) => {
-    if (!base || mutation.busy) return;
+    if (!base || mutation.isBusy(scope)) return;
     const original = base[f.readKey || f.key];
     if ((f.type === "password" && !value) || same(value, original)) {
       dirty.current.delete(f.key);
+      setError(undefined);
+      setMessage("");
       return;
     }
     const previous = {
@@ -186,6 +285,8 @@ export function SettingsForm({
           : spec.interrupt;
       if (interrupt && !(await mutation.confirm({ message: interrupt }))) {
         dirty.current.delete(f.key);
+        setError(undefined);
+        setMessage("");
         setDraft((s) => ({
           ...s,
           [f.key]: f.type === "password" ? "" : string(original),
@@ -194,79 +295,135 @@ export function SettingsForm({
       }
       if (!active.current) return;
       await mutation.run(async () => {
+        const controller = new AbortController();
+        abortRef.current = controller;
+        setApplying(true);
         setError(undefined);
         setMessage("Applying…");
-        const before = await api(spec.read, {
-          method: spec.readMethod,
-          body: spec.readBody,
-        });
-        if (!active.current) return;
-        const current = spec.decode ? spec.decode(before) : before;
-        if (
-          spec.fields.some(
-            (item) =>
-              item.type !== "password" &&
-              !same(
-                current[item.readKey || item.key],
-                base[item.readKey || item.key],
-              ),
-          )
-        ) {
-          setBase(current);
-          throw new Error(
-            "Settings changed elsewhere. Review the current values before trying again.",
-          );
-        }
-        await api(spec.write || spec.read, {
-          method: spec.method || "PUT",
-          body: spec.body ? spec.body(changed, all, previous) : changed,
-          timeout: spec.timeout || 30000,
-        });
-        if (!active.current) return;
-        let decoded: ObjectData = {},
-          verified = false;
-        for (let attempt = 0; attempt < 3; attempt++) {
-          if (attempt) await new Promise((resolve) => setTimeout(resolve, 900));
-          if (!active.current) return;
-          const fresh = await api(spec.read, {
+        try {
+          const before = await api(spec.read, {
             method: spec.readMethod,
             body: spec.readBody,
+            signal: controller.signal,
           });
           if (!active.current) return;
-          decoded = spec.decode ? spec.decode(fresh) : fresh;
-          verified = spec.verify
-            ? spec.verify(decoded, changed)
-            : Object.entries(changed).every(([k, v]) =>
-                same(
-                  decoded[
-                    spec.fields.find((item) => item.key === k)?.readKey || k
-                  ],
-                  v,
+          const current = spec.decode ? spec.decode(before) : before;
+          if (
+            spec.fields.some(
+              (item) =>
+                item.type !== "password" &&
+                !same(
+                  current[item.readKey || item.key],
+                  base[item.readKey || item.key],
                 ),
-              );
-          if (verified) break;
+            )
+          ) {
+            setBase(current);
+            throw new Error(
+              "Settings changed elsewhere. Review the current values before trying again.",
+            );
+          }
+          const payload = spec.body ? spec.body(changed, all, previous) : changed;
+          if (spec.asyncWrite && spec.asyncStatus) {
+            await submitAsyncApply({
+              write: spec.asyncWrite,
+              fallbackWrite: spec.write || spec.read,
+              statusPath: spec.asyncStatus,
+              method: spec.method || "PUT",
+              body: payload,
+              timeout: spec.timeout || 70000,
+              signal: controller.signal,
+              onStatus: (next) => {
+                if (active.current) setMessage(next);
+              },
+            });
+          } else {
+            await api(spec.write || spec.read, {
+              method: spec.method || "PUT",
+              body: payload,
+              timeout: spec.timeout || 30000,
+              signal: controller.signal,
+            });
+          }
+          if (!active.current) return;
+          let decoded: ObjectData = {},
+            verified = false,
+            lastReadError: unknown;
+          const maxAttempts = spec.asyncWrite ? 5 : 3;
+          for (let attempt = 0; attempt < maxAttempts; attempt++) {
+            if (attempt) await waitAbortable(900, controller.signal);
+            if (!active.current) return;
+            try {
+              const fresh = await api(spec.read, {
+                method: spec.readMethod,
+                body: spec.readBody,
+                timeout: spec.asyncWrite ? 8000 : 20000,
+                signal: controller.signal,
+              });
+              lastReadError = undefined;
+              if (!active.current) return;
+              decoded = spec.decode ? spec.decode(fresh) : fresh;
+              verified = spec.verify
+                ? spec.verify(decoded, changed)
+                : Object.entries(changed).every(([k, v]) =>
+                    same(
+                      decoded[
+                        spec.fields.find((item) => item.key === k)?.readKey || k
+                      ],
+                      v,
+                    ),
+                  );
+              if (verified) break;
+            } catch (readErr) {
+              if ((readErr as Error)?.name === "AbortError") throw readErr;
+              if (
+                spec.asyncWrite &&
+                readErr instanceof ApiError &&
+                readErr.status === 0 &&
+                attempt + 1 < maxAttempts
+              ) {
+                lastReadError = readErr;
+                if (active.current) setMessage("Reconnecting to router…");
+                continue;
+              }
+              throw readErr;
+            }
+          }
+          if (lastReadError) throw lastReadError;
+          setBase(decoded);
+          if (!verified)
+            throw new Error("The router has not confirmed the change.");
+          lastAttempt.current = null;
+          dirty.current.delete(f.key);
+          setDraft((old) =>
+            Object.fromEntries(
+              spec.fields.map((item) => [
+                item.key,
+                dirty.current.has(item.key)
+                  ? old[item.key]
+                  : item.type === "password"
+                    ? ""
+                    : string(decoded[item.readKey || item.key]),
+              ]),
+            ),
+          );
+          setMessage("Applied and verified");
+          onApplied?.();
+        } finally {
+          if (abortRef.current === controller) abortRef.current = null;
+          if (active.current) setApplying(false);
         }
-        setBase(decoded);
-        if (!verified)
-          throw new Error("The router has not confirmed the change.");
-        dirty.current.delete(f.key);
-        setDraft((old) =>
-          Object.fromEntries(
-            spec.fields.map((item) => [
-              item.key,
-              dirty.current.has(item.key)
-                ? old[item.key]
-                : item.type === "password"
-                  ? ""
-                  : string(decoded[item.readKey || item.key]),
-            ]),
-          ),
-        );
-        setMessage("Applied and verified");
-        onApplied?.();
-      });
+      }, scope);
     } catch (e) {
+      if ((e as Error)?.name === "AbortError") {
+        if (active.current) {
+          setError(undefined);
+          setMessage("Stopped waiting. Read current state to check.");
+        }
+        return;
+      }
       if (active.current) {
+        lastAttempt.current = { f, value };
         setError(e as Error);
         setMessage("");
       }
@@ -292,7 +449,7 @@ export function SettingsForm({
             {spec.fields.map((f) => {
               const available =
                 f.allowMissing || base[f.readKey || f.key] !== undefined;
-              const disabled = mutation.busy || !available;
+              const disabled = scopeBusy || !available;
               const value = string(draft[f.key]);
               const choices = f.optionsFor?.(base) || f.options;
               return (
@@ -362,20 +519,49 @@ export function SettingsForm({
           </div>
         </div>
       )}
-      <AutoFeedback busy={mutation.busy} message={message} error={error} />
-      {error && (
-        <button
-          className="text-link"
-          disabled={mutation.busy}
-          onClick={() => {
-            dirty.current.clear();
-            setError(undefined);
-            setMessage("");
-            resource.reload();
-          }}
-        >
-          {t("Discard draft and read current values")}
-        </button>
+      <AutoFeedback busy={scopeBusy} message={message} error={error} />
+      {applying && (
+        <div className="form-actions">
+          <button
+            type="button"
+            className="text-link"
+            onMouseDown={(e) => e.preventDefault()}
+            onClick={() => abortRef.current?.abort()}
+          >
+            {t("Stop waiting")}
+          </button>
+        </div>
+      )}
+      {error && !scopeBusy && (
+        <div className="form-actions">
+          {lastAttempt.current && (
+            <button
+              type="button"
+              className="text-link"
+              onMouseDown={(e) => e.preventDefault()}
+              onClick={() => {
+                const attempt = lastAttempt.current;
+                if (attempt) void apply(attempt.f, attempt.value);
+              }}
+            >
+              {t("Retry")}
+            </button>
+          )}
+          <button
+            type="button"
+            className="text-link"
+            onMouseDown={(e) => e.preventDefault()}
+            onClick={() => {
+              lastAttempt.current = null;
+              dirty.current.clear();
+              setError(undefined);
+              setMessage("");
+              resource.reload();
+            }}
+          >
+            {t("Discard draft and read current values")}
+          </button>
+        </div>
       )}
     </Panel>
   );
@@ -413,11 +599,13 @@ export function CommandForm({
     [error, setError] = useState<Error>(),
     [result, setResult] = useState("");
   const mutation = useMutation();
-  const mounted = useRef(true);
+  const mounted = useRef(true),
+    abortRef = useRef<AbortController | null>(null);
   useEffect(() => {
     mounted.current = true;
     return () => {
       mounted.current = false;
+      abortRef.current?.abort();
     };
   }, []);
   return (
@@ -438,45 +626,54 @@ export function CommandForm({
             )
               return;
             await mutation.run(async () => {
+              const controller = new AbortController();
+              abortRef.current = controller;
               setError(undefined);
-              const payload = body ? body(values) : values;
-              if (before && (await before()) === false) return;
-              if (!mounted.current) return;
-              const data = await api(endpoint, {
-                method,
-                body: payload,
-                timeout: 150000,
-              });
-              if (data && typeof data === "object" && "result" in data) {
-                const accepted =
+              try {
+                const payload = body ? body(values) : values;
+                if (before && (await before()) === false) return;
+                if (!mounted.current) return;
+                const data = await api(endpoint, {
+                  method,
+                  body: payload,
+                  timeout: 150000,
+                  signal: controller.signal,
+                });
+                if (!mounted.current) return;
+                if (data && typeof data === "object" && "result" in data) {
+                  const accepted =
+                    endpoint === "/api/sms/send"
+                      ? [3, "3"]
+                      : [0, "0", true, "success", "SUCCESS"];
+                  if (!accepted.includes(data.result))
+                    throw new Error(
+                      t(
+                        "The modem returned result {0}; the action is not confirmed",
+                        data.result,
+                      ),
+                    );
+                }
+                setResult(
                   endpoint === "/api/sms/send"
-                    ? [3, "3"]
-                    : [0, "0", true, "success", "SUCCESS"];
-                if (!accepted.includes(data.result))
-                  throw new Error(
-                    t(
-                      "The modem returned result {0}; the action is not confirmed",
-                      data.result,
-                    ),
-                  );
+                    ? "Send request accepted. Delivery is not confirmed."
+                    : "Request accepted.",
+                );
+                after?.(data);
+                setValues((s) => ({
+                  ...s,
+                  ...Object.fromEntries(
+                    fields
+                      .filter((f) => f.type === "password")
+                      .map((f) => [f.key, ""]),
+                  ),
+                }));
+              } finally {
+                if (abortRef.current === controller) abortRef.current = null;
               }
-              setResult(
-                endpoint === "/api/sms/send"
-                  ? "Send request accepted. Delivery is not confirmed."
-                  : "Request accepted.",
-              );
-              after?.(data);
-              setValues((s) => ({
-                ...s,
-                ...Object.fromEntries(
-                  fields
-                    .filter((f) => f.type === "password")
-                    .map((f) => [f.key, ""]),
-                ),
-              }));
             });
           } catch (error) {
-            setError(error as Error);
+            if ((error as Error)?.name === "AbortError") return;
+            if (mounted.current) setError(error as Error);
           }
         }}
       >

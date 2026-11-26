@@ -2,19 +2,20 @@ export global Palette {
     in-out property <bool> dark: true;
     in-out property <color> accent: #2563eb;
     in-out property <color> accent-ink: #87aeff;
-    out property <color> bg: dark ? #202a37 : #f4f6fa;
-    out property <color> surface: dark ? #273445 : #ffffff;
-    out property <color> text: dark ? #eef0f4 : #1b2028;
-    out property <color> muted: dark ? #b4bfce : #546477;
-    out property <color> line: dark ? #3b4757 : #dbe2ec;
-    out property <color> rim: dark ? #ffffff18 : #1b202814;
-    out property <color> sheen: dark ? #ffffff45 : #ffffff;
-    out property <color> glass: dark ? #273445f2 : #fffffff2;
+    out property <color> bg: dark ? #0f151e : #f3f6fb;
+    out property <color> surface: dark ? #18212e : #ffffff;
+    out property <color> surface-alt: dark ? #202c3d : #eef2f8;
+    out property <color> text: dark ? #f1f5f9 : #0f172a;
+    out property <color> muted: dark ? #9aa8bc : #56657a;
+    out property <color> line: dark ? #273446 : #dde4ef;
+    out property <color> rim: dark ? #ffffff14 : #0f172a12;
+    out property <color> sheen: dark ? #ffffff1c : #ffffff;
+    out property <color> glass: dark ? #161f2cf2 : #fffffff5;
     in-out property <image> material-light;
     in-out property <image> material-dark;
     in-out property <color> accent-on: #ffffff;
-    out property <color> good: dark ? #95d8a8 : #1f713e;
-    out property <color> warning: dark ? #efbf78 : #925d12;
+    out property <color> good: dark ? #5ee29c : #157a44;
+    out property <color> warning: dark ? #f4bf6b : #a66310;
 }
 
 // Static material layers. No blur, timers or offscreen composition.
@@ -23,6 +24,7 @@ export component AmbientBackground inherits Rectangle {
     background: Palette.bg;
     Image {
         x: 0px; y: 0px; width: 320px; height: 180px;
+        opacity: Palette.dark ? 0.25 : 0.85;
         source: Palette.dark ? Palette.material-dark : Palette.material-light;
     }
 }
@@ -97,20 +99,154 @@ export component MenuRow inherits GlassPanel {
     in property <string> title;
     in property <string> subtitle;
     in property <string> tag;
+    in property <bool> interactive: true;
     callback clicked;
     height: 68px;
-    background: touch.pressed ? Palette.line : Palette.surface;
+    background: touch.pressed && root.interactive ? Palette.surface-alt : Palette.surface;
+    opacity: root.interactive ? 1 : 0.55;
     HorizontalLayout {
-        padding: 12px; spacing: 8px;
+        padding-left: 14px; padding-right: 12px; padding-top: 11px; padding-bottom: 11px; spacing: 8px;
         VerticalLayout {
             spacing: 3px;
             Label { text: root.title; height: 23px; font-size: 15px; font-weight: 600; }
-            Label { text: root.subtitle; height: 18px; color: Palette.muted; font-size: 13px; }
+            Label { text: root.subtitle; height: 19px; color: Palette.muted; font-size: 13px; }
         }
-        Label { text: root.tag; color: Palette.accent-ink; font-size: 12px; width: 30px; horizontal-alignment: right; vertical-alignment: center; }
-        Label { text: "›"; color: Palette.muted; font-size: 24px; width: 12px; vertical-alignment: center; }
+        if root.tag != "": Rectangle {
+            width: max(28px, tag-lbl.preferred-width + 12px); height: 22px; y: 12px;
+            border-radius: 11px; background: Palette.accent.with-alpha(Palette.dark ? 0.2 : 0.12);
+            tag-lbl := Label { text: root.tag; color: Palette.accent-ink; font-size: 11px; font-weight: 600; horizontal-alignment: center; vertical-alignment: center; }
+        }
+        Label { text: "›"; color: Palette.muted; font-size: 22px; width: 12px; vertical-alignment: center; }
     }
-    touch := TouchArea { clicked => { root.clicked(); } }
+    touch := TouchArea { enabled: root.interactive; clicked => { root.clicked(); } }
+}
+
+export component ToggleRow inherits GlassPanel {
+    in property <string> title;
+    in property <string> subtitle;
+    in property <string> tag;
+    in property <bool> checked;
+    in property <bool> interactive: true;
+    callback toggled;
+    height: 64px;
+    background: touch.pressed && root.interactive ? Palette.surface-alt : Palette.surface;
+    opacity: root.interactive ? 1 : 0.55;
+    HorizontalLayout {
+        padding-left: 14px; padding-right: 14px; padding-top: 10px; padding-bottom: 10px; spacing: 10px;
+        VerticalLayout {
+            spacing: 2px;
+            Label { text: root.title; height: 22px; font-size: 15px; font-weight: 600; }
+            Label { text: root.tag != "" ? root.subtitle + " · " + root.tag : root.subtitle; height: 18px; color: root.tag != "" ? Palette.accent-ink : Palette.muted; font-size: 12px; }
+        }
+        Rectangle {
+            width: 46px; height: 26px; y: 9px; border-radius: 13px;
+            background: root.checked ? Palette.accent : Palette.line;
+            Rectangle {
+                x: root.checked ? 23px : 3px; y: 3px; width: 20px; height: 20px; border-radius: 10px;
+                background: #ffffff;
+            }
+        }
+    }
+    touch := TouchArea {
+        enabled: root.interactive;
+        accessible-role: checkbox; accessible-label: root.title; accessible-checked: root.checked;
+        clicked => { root.toggled(); }
+    }
+}
+
+export component SegmentedRow inherits GlassPanel {
+    in property <string> title;
+    in property <string> tag;
+    in property <int> count;
+    in property <string> label-0;
+    in property <string> label-1;
+    in property <string> label-2;
+    in property <string> label-3;
+    in property <int> active: -1;
+    in property <bool> interactive: true;
+    callback picked(int);
+    height: 82px;
+    opacity: root.interactive ? 1 : 0.55;
+    VerticalLayout {
+        padding-left: 12px; padding-right: 12px; padding-top: 10px; padding-bottom: 10px; spacing: 8px;
+        HorizontalLayout {
+            height: 20px;
+            Label { text: root.title; font-size: 14px; font-weight: 600; vertical-alignment: center; }
+            if root.tag != "": Label { text: root.tag; color: Palette.accent-ink; font-size: 11px; font-weight: 600; horizontal-alignment: right; vertical-alignment: center; }
+        }
+        Rectangle {
+            height: 36px; border-radius: 10px; background: Palette.surface-alt;
+            HorizontalLayout {
+                padding: 3px; spacing: 3px;
+                if root.count >= 1: Rectangle {
+                    horizontal-stretch: 1; min-width: 0px; border-radius: 8px;
+                    background: root.active == 0 ? Palette.accent : transparent;
+                    Label { text: root.label-0; font-size: 12px; font-weight: 600; color: root.active == 0 ? Palette.accent-on : Palette.text; horizontal-alignment: center; vertical-alignment: center; }
+                    TouchArea { enabled: root.interactive; clicked => { root.picked(0); } }
+                }
+                if root.count >= 2: Rectangle {
+                    horizontal-stretch: 1; min-width: 0px; border-radius: 8px;
+                    background: root.active == 1 ? Palette.accent : transparent;
+                    Label { text: root.label-1; font-size: 12px; font-weight: 600; color: root.active == 1 ? Palette.accent-on : Palette.text; horizontal-alignment: center; vertical-alignment: center; }
+                    TouchArea { enabled: root.interactive; clicked => { root.picked(1); } }
+                }
+                if root.count >= 3: Rectangle {
+                    horizontal-stretch: 1; min-width: 0px; border-radius: 8px;
+                    background: root.active == 2 ? Palette.accent : transparent;
+                    Label { text: root.label-2; font-size: 12px; font-weight: 600; color: root.active == 2 ? Palette.accent-on : Palette.text; horizontal-alignment: center; vertical-alignment: center; }
+                    TouchArea { enabled: root.interactive; clicked => { root.picked(2); } }
+                }
+                if root.count >= 4: Rectangle {
+                    horizontal-stretch: 1; min-width: 0px; border-radius: 8px;
+                    background: root.active == 3 ? Palette.accent : transparent;
+                    Label { text: root.label-3; font-size: 12px; font-weight: 600; color: root.active == 3 ? Palette.accent-on : Palette.text; horizontal-alignment: center; vertical-alignment: center; }
+                    TouchArea { enabled: root.interactive; clicked => { root.picked(3); } }
+                }
+            }
+        }
+    }
+}
+
+export component StepperRow inherits GlassPanel {
+    in property <string> title;
+    in property <string> value;
+    in property <string> tag;
+    in property <bool> can-dec: true;
+    in property <bool> can-inc: true;
+    in property <bool> interactive: true;
+    callback decrement;
+    callback increment;
+    callback edit-value;
+    height: 66px;
+    opacity: root.interactive ? 1 : 0.55;
+    HorizontalLayout {
+        padding-left: 14px; padding-right: 10px; padding-top: 10px; padding-bottom: 10px; spacing: 8px;
+        VerticalLayout {
+            spacing: 2px;
+            Label { text: root.title; height: 22px; font-size: 14px; font-weight: 600; }
+            Label { text: root.tag != "" ? root.tag : @tr("点按数值可直接输入"); height: 18px; color: root.tag != "" ? Palette.accent-ink : Palette.muted; font-size: 11px; }
+        }
+        Rectangle {
+            width: 38px; height: 38px; y: 4px; border-radius: 10px;
+            background: dec-touch.pressed ? Palette.line : Palette.surface-alt;
+            opacity: root.can-dec ? 1 : 0.35;
+            Label { text: "−"; font-size: 20px; font-weight: 650; horizontal-alignment: center; vertical-alignment: center; }
+            dec-touch := TouchArea { enabled: root.interactive && root.can-dec; clicked => { root.decrement(); } }
+        }
+        Rectangle {
+            width: 52px; height: 38px; y: 4px; border-radius: 10px;
+            background: val-touch.pressed ? Palette.line : transparent;
+            Label { text: root.value; font-size: 16px; font-weight: 650; color: Palette.accent-ink; horizontal-alignment: center; vertical-alignment: center; }
+            val-touch := TouchArea { enabled: root.interactive; clicked => { root.edit-value(); } }
+        }
+        Rectangle {
+            width: 38px; height: 38px; y: 4px; border-radius: 10px;
+            background: inc-touch.pressed ? Palette.line : Palette.surface-alt;
+            opacity: root.can-inc ? 1 : 0.35;
+            Label { text: "+"; font-size: 20px; font-weight: 650; horizontal-alignment: center; vertical-alignment: center; }
+            inc-touch := TouchArea { enabled: root.interactive && root.can-inc; clicked => { root.increment(); } }
+        }
+    }
 }
 
 export component Stat inherits GlassPanel {

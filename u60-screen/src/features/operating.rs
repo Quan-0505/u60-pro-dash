@@ -4,8 +4,14 @@ use super::*;
 use serde_json::json;
 
 pub fn reads(id: &str) -> Option<Vec<Read>> {
-    matches!(id, "quick-controls" | "mobile-modes" | "power-save")
-        .then(|| vec![Read::get("operating", "/api/device/operating")])
+    match id {
+        "quick-controls" => Some(vec![
+            Read::get("operating", "/api/device/operating"),
+            Read::get("wifi", "/api/wifi/radios"),
+        ]),
+        "mobile-modes" | "power-save" => Some(vec![Read::get("operating", "/api/device/operating")]),
+        _ => None,
+    }
 }
 pub fn profile_name(value: &str) -> &'static str {
     match value {
@@ -76,8 +82,17 @@ pub fn page(id: &str, readings: &Data) -> Page {
         field.available = d["bandwidth"]["supported"] == true;
         p.fields.push(field);
     }
+    if id == "quick-controls" {
+        let wifi = data(readings, "wifi");
+        p.fields.push(Field::choice(
+            "wifi_onoff",
+            "Wi-Fi 总开关",
+            &wifi["wifi_onoff"],
+            &[("0", "关闭"), ("1", "开启")],
+        ));
+    }
     let mut action = Action::new("save", "应用设置", "");
-    action.enabled = d.is_object();
+    action.enabled = d.is_object() || (id == "quick-controls" && data(readings, "wifi").is_object());
     p.actions.push(action);
     p
 }
@@ -87,6 +102,22 @@ pub fn plan(_id: &str, action: &str, page: &Page, readings: &Data) -> Result<Pla
     ensure!(changed.len() == 1, "Change one operating setting at a time");
     let field = changed[0];
     let value = field.encode()?;
+    if field.key == "wifi_onoff" {
+        let mut plan = Plan::one(
+            Method::PUT,
+            "/api/wifi/settings/async",
+            json!({"wifi_onoff": value}),
+        );
+        let wifi = data(readings, "wifi");
+        if wifi.is_object() {
+            plan.guards.push(Guard::new(
+                Read::get("wifi", "/api/wifi/radios"),
+                wifi,
+                &["/wifi_onoff"],
+            ));
+        }
+        return Ok(plan);
+    }
     let (method, path, body, pointer) = match field.key.as_str() {
         "airplane" => (
             Method::POST,

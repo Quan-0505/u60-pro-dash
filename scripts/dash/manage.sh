@@ -6,11 +6,12 @@ ROOT=/data/u60-dash
 RUN=/tmp/u60-dash-run
 START=/data/local/tmp/start_zte_agent.sh
 LEGACY=/data/zte-agent
+RC_LOCAL=/etc/rc.local
 
 fail() { echo "$*" >&2; exit 1; }
 valid_id() { case "$1" in ''|*[!a-zA-Z0-9._-]*|.*) return 1;; esac; }
 atomic() { printf '%s\n' "$2" > "$1.new"; chmod 600 "$1.new"; mv -f "$1.new" "$1"; sync; }
-value() { if [ -s "$1" ]; then sed -n '1p' "$1"; else printf 'none\n'; fi; }
+value() { if [ -s "$1" ]; then sed -n '1p' "$1" 2>/dev/null || printf 'none\n'; else printf 'none\n'; fi; }
 link_agent() {
     rm -f "$LEGACY.dash-next"
     ln -s "$ROOT/releases/$1/zte-agent" "$LEGACY.dash-next"
@@ -69,6 +70,18 @@ launch() {
     nohup sh "$ROOT/releases/$launch_current/service.sh" run </dev/null >"$ROOT/service.log" 2>&1 9>&- &
 }
 restore_original() {
+    if [ -f "$ROOT/original/fresh" ]; then
+        rm -f "$START" "$START.dash-next" "$LEGACY" "$LEGACY.dash-next"
+        if [ -f "$RC_LOCAL" ] && grep -qxF "sh $START" "$RC_LOCAL"; then
+            cp -p "$RC_LOCAL" "$RC_LOCAL.dash-next"
+            grep -vxF "sh $START" "$RC_LOCAL" > "$RC_LOCAL.dash-next" || true
+            mv -f "$RC_LOCAL.dash-next" "$RC_LOCAL"
+        fi
+        atomic "$ROOT/current" none
+        rm -f "$ROOT/enabled" "$ROOT/pending"
+        sync
+        return 0
+    fi
     [ -s "$ROOT/original/startup.sh" ] && [ -s "$ROOT/original/agent-content" ] || fail 'Original backup is incomplete.'
     restore_probe=$(value "$ROOT/current")
     if [ "$restore_probe" = none ]; then restore_probe=$(value "$ROOT/pending"); fi
@@ -128,23 +141,40 @@ recover_pending() {
 }
 prepare_original() {
     if [ -d "$ROOT/original" ]; then
+        if [ -f "$ROOT/original/fresh" ]; then
+            grep -qF "$START" "$RC_LOCAL" || fail 'Startup hook missing in rc.local.'
+            return
+        fi
         [ -s "$ROOT/original/startup.sh" ] && [ -s "$ROOT/original/agent-content" ] || fail 'Original backup is incomplete.'
         return
     fi
-    [ -s "$START" ] && [ -x "$LEGACY" ] || fail 'A working existing agent installation is required.'
     [ ! -s /data/open-u60/update/pending ] || fail 'An existing OTA trial is active.'
-    grep -qF "$START" /etc/rc.local || fail 'Existing rc.local startup hook missing; run initial agent setup first.'
-    rm -rf "$ROOT/original.next"
-    mkdir "$ROOT/original.next"
-    cp -p "$START" "$ROOT/original.next/startup.sh"
-    cp -Pp "$LEGACY" "$ROOT/original.next/agent"
-    # Save the referenced binary too, so the provenance is reviewable even if
-    # another tool later modifies a former OTA slot.
-    cp -p "$LEGACY" "$ROOT/original.next/agent-content"
-    if [ -L "$LEGACY" ]; then readlink -f "$LEGACY" > "$ROOT/original.next/target"; fi
-    chmod 700 "$ROOT/original.next"
-    sync
-    mv "$ROOT/original.next" "$ROOT/original"
+    grep -qF "$START" "$RC_LOCAL" || fail 'Startup hook missing in rc.local.'
+    if [ -s "$START" ] && [ -x "$LEGACY" ]; then
+        rm -rf "$ROOT/original.next"
+        mkdir "$ROOT/original.next"
+        cp -p "$START" "$ROOT/original.next/startup.sh"
+        cp -Pp "$LEGACY" "$ROOT/original.next/agent"
+        # Save the referenced binary too, so the provenance is reviewable even if
+        # another tool later modifies a former OTA slot.
+        cp -p "$LEGACY" "$ROOT/original.next/agent-content"
+        if [ -L "$LEGACY" ]; then readlink -f "$LEGACY" > "$ROOT/original.next/target"; fi
+        chmod 700 "$ROOT/original.next"
+        sync
+        mv "$ROOT/original.next" "$ROOT/original"
+        return
+    fi
+    if [ -s "$ROOT/agent.env" ] && [ -s "$ROOT/health.json" ]; then
+        rm -rf "$ROOT/original.next"
+        mkdir "$ROOT/original.next"
+        printf 'fresh\n' > "$ROOT/original.next/fresh"
+        chmod 600 "$ROOT/original.next/fresh"
+        chmod 700 "$ROOT/original.next"
+        sync
+        mv "$ROOT/original.next" "$ROOT/original"
+        return
+    fi
+    fail 'A working existing agent installation or fresh agent.env/health.json is required.'
 }
 install_candidate() {
     candidate=$1
@@ -162,7 +192,9 @@ install_candidate() {
     fi
     [ ! -s "$ROOT/pending" ] || fail 'A paired trial is active.'
     prepare_original
-    if ! "$release/zte-agent" dash-export-env; then
+    if [ "$previous" = none ] && [ -f "$ROOT/original/fresh" ] && [ -s "$ROOT/agent.env" ] && [ -s "$ROOT/health.json" ]; then
+        :
+    elif ! "$release/zte-agent" dash-export-env; then
         # An older candidate may only know the old HTTP port. The currently
         # running release can export its own credentials and health baseline.
         [ "$previous" != none ] && [ -x "$ROOT/releases/$previous/zte-agent" ] || fail 'Cannot read the existing agent environment.'
@@ -172,6 +204,7 @@ install_candidate() {
     # The pending marker and boot wrapper are durable before any process is stopped.
     atomic "$ROOT/pending" "$candidate
 $previous"
+    mkdir -p "$(dirname "$START")"
     cat >"$START.dash-next" <<'BOOT'
 #!/bin/sh
 exec sh /data/u60-dash/manage.sh boot
@@ -204,7 +237,9 @@ status() {
     selected=$(value "$ROOT/current")
     if [ "$selected" != none ] && agent_running "$ROOT/releases/$selected/zte-agent"; then echo 'agent=running'; else echo 'agent=stopped'; fi
     if [ "$selected" = none ]; then
-        if agent_running "$LEGACY" || { [ -s "$ROOT/original/target" ] && agent_running "$(cat "$ROOT/original/target")"; }; then
+        if [ -f "$ROOT/original/fresh" ]; then
+            echo 'original_agent=none'
+        elif agent_running "$LEGACY" || { [ -s "$ROOT/original/target" ] && agent_running "$(cat "$ROOT/original/target")"; }; then
             echo 'original_agent=running'
         else echo 'original_agent=stopped'; fi
     fi

@@ -70,7 +70,7 @@ fn service_state(key: &str, value: &Value) -> ServiceState {
     if key == "tailscale" {
         return match value["state"].as_str() {
             Some("healthy" | "running") => ServiceState::Running,
-            Some("disabled" | "paused" | "not_installed") => ServiceState::Stopped,
+            Some("disabled" | "paused" | "idle_paused" | "not_installed") => ServiceState::Stopped,
             Some("unknown" | "") | None => ServiceState::Unknown,
             Some(_) => ServiceState::Attention,
         };

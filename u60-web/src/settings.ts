@@ -1,16 +1,61 @@
 import { field, flag, options, type FormSpec } from "./forms";
+import { type ObjectData } from "./api";
 import { actions, routingModel } from "./models";
 const wifiWarning =
   "Applying wireless settings may disconnect this device. Reconnect using the new network name or password, then reopen the console.";
 const mobileWarning =
   "Changing mobile settings can interrupt internet access. Roaming may incur carrier charges. Keep a local connection to the router.";
+function decodeWifi(data: ObjectData): ObjectData {
+  const out: ObjectData = { ...data };
+  for (const key of ["channel_2g", "channel_5g"]) {
+    if (typeof out[key] === "string" && out[key].toLowerCase() === "auto") {
+      out[key] = "0";
+    }
+  }
+  for (const key of ["htmode_2g", "htmode_5g"]) {
+    if (typeof out[key] === "string" && out[key].toLowerCase() === "auto") {
+      out[key] = "Auto";
+    }
+  }
+  for (const key of ["encryption_2g", "encryption_5g", "encryption"]) {
+    if (out[key] === "psk2") {
+      out[key] = "psk2+ccmp";
+    }
+  }
+  if (
+    out.disabled === undefined &&
+    (out.disabled_2g !== undefined || out.disabled_5g !== undefined)
+  ) {
+    out.disabled =
+      out.disabled_2g === "0" || out.disabled_5g === "0" ? "0" : "1";
+  }
+  return out;
+}
+export const wifiMaster: FormSpec = {
+  id: "wifi-master",
+  title: "Wi-Fi",
+  note: "Turns both 2.4 GHz and 5 GHz wireless radios on or off together.",
+  read: "/api/wifi/status",
+  write: "/api/wifi/settings",
+  asyncWrite: "/api/wifi/settings/async",
+  asyncStatus: "/api/wifi/apply",
+  scope: "wifi",
+  timeout: 70000,
+  decode: decodeWifi,
+  fields: [flag("wifi_onoff", "Wi-Fi master switch")],
+  interrupt: wifiWarning,
+};
 export const wifiStandard: FormSpec = {
   id: "wifi-standard",
   title: "Wireless standard",
   note: "Applies to both bands. Enables Wi-Fi 6 and Wi-Fi 7 for compatible clients. Turn off only if older devices cannot connect.",
   read: "/api/wifi/status",
   write: "/api/wifi/settings",
-  timeout: 90000,
+  asyncWrite: "/api/wifi/settings/async",
+  asyncStatus: "/api/wifi/apply",
+  scope: "wifi",
+  timeout: 70000,
+  decode: decodeWifi,
   fields: [flag("wifi6_switch", "Wi-Fi 7 (802.11be)")],
   interrupt: wifiWarning,
 };
@@ -21,14 +66,18 @@ export function wifiSpec(band: "2g" | "5g", radio = false): FormSpec {
     title: name,
     read: "/api/wifi/status",
     write: "/api/wifi/settings",
-    timeout: 90000,
+    asyncWrite: "/api/wifi/settings/async",
+    asyncStatus: "/api/wifi/apply",
+    scope: "wifi",
+    timeout: 70000,
+    decode: decodeWifi,
     fields: radio
       ? [
           options(
             "channel_" + band,
             "Channel",
             [
-              "auto",
+              "0",
               ...(band === "2g"
                 ? Array.from({ length: 13 }, (_, i) => String(i + 1))
                 : [
@@ -58,7 +107,7 @@ export function wifiSpec(band: "2g" | "5g", radio = false): FormSpec {
                     "161",
                     "165",
                   ]),
-            ].map((v) => [v, v === "auto" ? "Automatic" : v]),
+            ].map((v) => [v, v === "0" ? "Automatic" : v]),
           ),
           options("htmode_" + band, "Channel width", (current) => {
             const prefix =
@@ -71,17 +120,17 @@ export function wifiSpec(band: "2g" | "5g", radio = false): FormSpec {
                   : "VHT"
                 : "EHT");
             return [
-              ["auto", "Automatic"],
+              ["Auto", "Automatic"],
               ...[20, 40, ...(band === "5g" ? [80, 160] : [])].map(
                 (width): [string, string] => [prefix + width, width + " MHz"],
               ),
             ];
           }),
-          field("txpower_" + band, "Transmit power (%)", {
-            type: "number",
-            min: 1,
-            max: 100,
-          }),
+          options("txpower_" + band, "Transmit power (%)", [
+            ["40", "40%"],
+            ["80", "80%"],
+            ["100", "100%"],
+          ]),
           flag("hidden_" + band, "Hidden network"),
         ]
       : [
@@ -95,7 +144,7 @@ export function wifiSpec(band: "2g" | "5g", radio = false): FormSpec {
           ),
           field("ssid_" + band, "Network name", { required: true }),
           options("encryption_" + band, "Security", [
-            ["psk2", "WPA2"],
+            ["psk2+ccmp", "WPA2"],
             ["sae-mixed", "WPA2 / WPA3"],
             ["sae", "WPA3"],
             ["none", "Open network"],
@@ -114,33 +163,30 @@ export function wifiSpec(band: "2g" | "5g", radio = false): FormSpec {
 export const guest: FormSpec = {
   id: "guest",
   title: "Guest network",
+  note: "Turns 2.4 GHz and 5 GHz guest networks on or off together (B31 firmware requires coupled dual-band guest APs).",
   read: "/api/wifi/guest",
-  timeout: 90000,
+  write: "/api/wifi/guest",
+  asyncWrite: "/api/wifi/guest/async",
+  asyncStatus: "/api/wifi/apply",
+  scope: "wifi",
+  timeout: 70000,
+  decode: decodeWifi,
   fields: [
     options(
-      "guest_disabled_2g",
-      "2.4 GHz",
+      "guest_disabled",
+      "Guest Wi-Fi",
       [
         ["0", "Enabled"],
         ["1", "Disabled"],
       ],
-      { readKey: "disabled_2g" },
-    ),
-    options(
-      "guest_disabled_5g",
-      "5 GHz",
-      [
-        ["0", "Enabled"],
-        ["1", "Disabled"],
-      ],
-      { readKey: "disabled_5g" },
+      { readKey: "disabled" },
     ),
     field("guest_ssid", "Network name", { readKey: "ssid", required: true }),
     options(
       "guest_encryption",
       "Security",
       [
-        ["psk2", "WPA2"],
+        ["psk2+ccmp", "WPA2"],
         ["sae-mixed", "WPA2 / WPA3"],
         ["none", "Open network"],
       ],

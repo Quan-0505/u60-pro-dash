@@ -35,11 +35,18 @@ pub fn page(id: &str, readings: &Data) -> Page {
                 ("installed", crate::i18n::tr("已安装")),
                 ("enabled", crate::i18n::tr("服务启用")),
                 ("daemon_running", crate::i18n::tr("后台运行")),
-                ("backend_state", crate::i18n::tr("连接状态")),
                 ("tailscale_ips", crate::i18n::tr("Tailscale 地址")),
                 ("management_port", crate::i18n::tr("远程 Web 端口")),
                 ("health", crate::i18n::tr("健康提示")),
             ] {
+                if k == "tailscale_ips" {
+                    let conn = if d["state"] == "idle_paused" || d["idle_paused"] == true {
+                        json!(crate::i18n::tr("空闲暂停（无客户端）"))
+                    } else {
+                        d["backend_state"].clone()
+                    };
+                    p.row(crate::i18n::tr("连接状态"), &conn);
+                }
                 p.row(l, &d[k]);
             }
             let login = first(d, &["login_url"]);

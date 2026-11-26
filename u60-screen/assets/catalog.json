@@ -136,6 +136,37 @@
   ],
   "features": [
     {
+      "id": "wifi-master",
+      "title": "Wi-Fi 总开关与制式",
+      "group": "wifi",
+      "description": "统一控制无线热点总开关与 Wi-Fi 7。",
+      "rows": [],
+      "fields": [
+        {
+          "key": "wifi_onoff",
+          "label": "Wi-Fi 总开关",
+          "value": true,
+          "type": "toggle"
+        },
+        {
+          "key": "wifi6_switch",
+          "label": "Wi-Fi 7",
+          "value": true,
+          "type": "toggle"
+        }
+      ],
+      "actions": [
+        {
+          "label": "保存热点设置",
+          "effect": "save"
+        }
+      ],
+      "apis": [
+        "GET /api/wifi/status",
+        "PUT /api/wifi/settings/async"
+      ]
+    },
+    {
       "id": "wifi2",
       "title": "2.4 GHz 热点",
       "group": "wifi",

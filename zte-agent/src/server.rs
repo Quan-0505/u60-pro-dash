@@ -236,7 +236,7 @@ pub fn lane(method: Method, path: &str) -> Lane {
         (_, p) if p.starts_with("/api/proxy/") || p.starts_with("/api/esim/") || p.starts_with("/api/tailscale/") || p.starts_with("/api/https/") => true,
         (Put | Post, p) if p.starts_with("/api/vpn/wireguard") => true,
         (Put, "/api/modem/bandwidth") => true,
-        (Put, "/api/wifi/settings" | "/api/wifi/guest") => true,
+        (Put, "/api/wifi/settings" | "/api/wifi/guest" | "/api/wifi/settings/async" | "/api/wifi/guest/async") => true,
         (_, p) if p.starts_with("/api/ussd/") || p.starts_with("/api/stk/") => true,
         (Post, p) if p.starts_with("/api/sim/") || p.starts_with("/api/cell/") => true,
         (_, p) if p.starts_with("/api/dns/") => true,
@@ -338,9 +338,12 @@ fn route_inner(method: &Method, path: &str, state: &AppState, body: &[u8]) -> (u
         // WiFi
         (&Method::Get, "/api/wifi/radios") => wifi::wifi_radios(state),
         (&Method::Get, "/api/wifi/status") => wifi::wifi_status(state),
+        (&Method::Get, "/api/wifi/apply") => wifi::wifi_apply_status(state),
         (&Method::Put, "/api/wifi/settings") => wifi::wifi_set(state, body),
+        (&Method::Put, "/api/wifi/settings/async") => wifi::wifi_set_async(state, body),
         (&Method::Get, "/api/wifi/guest") => wifi::guest_status(state),
         (&Method::Put, "/api/wifi/guest") => wifi::guest_set(state, body),
+        (&Method::Put, "/api/wifi/guest/async") => wifi::guest_set_async(state, body),
         // Modem
         (&Method::Get, "/api/data-usage") => data_usage::get(state),
         (&Method::Put, "/api/data-usage/limit") => data_usage::set_limit(state, body),

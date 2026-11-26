@@ -9,7 +9,7 @@ pub use http::Error;
 use reqwest::Method;
 use serde_json::Value;
 use std::{
-    collections::BTreeMap,
+    collections::{BTreeMap, HashMap},
     fs,
     io::Read,
     net::SocketAddr,
@@ -18,7 +18,10 @@ use std::{
     thread,
     time::{Duration, Instant},
 };
-use tokio::{sync::mpsc as channel, task::JoinHandle};
+use tokio::{
+    sync::mpsc as channel,
+    task::{AbortHandle, Id as TaskId, JoinHandle, JoinSet},
+};
 use zeroize::Zeroizing;
 
 #[derive(Clone)]
@@ -155,6 +158,7 @@ enum Command {
     Retry,
     Call(u64, Request),
     Probe(u64, SocketAddr),
+    Cancel(u64),
 }
 pub struct Agent {
     commands: Option<channel::Sender<Command>>,
@@ -171,8 +175,8 @@ impl Agent {
             "local credentials are restricted to the on-device agent endpoint"
         );
         let api = http::Api::new(config.address)?;
-        let (commands, receiver) = channel::channel(16);
-        let (reply_tx, replies) = mpsc::sync_channel(16);
+        let (commands, receiver) = channel::channel(64);
+        let (reply_tx, replies) = mpsc::sync_channel(64);
         let shared = Shared::default();
         let worker_state = shared.clone();
         let runtime = tokio::runtime::Builder::new_current_thread()
@@ -214,6 +218,9 @@ impl Agent {
     pub fn call(&self, id: u64, request: Request) -> Result<(), Error> {
         self.send(Command::Call(id, request))
     }
+    pub fn cancel(&self, id: u64) {
+        let _ = self.send(Command::Cancel(id));
+    }
     pub fn login(&self, password: Zeroizing<String>) -> Result<(), Error> {
         self.send(Command::Login(password))
     }
@@ -238,10 +245,8 @@ impl Drop for Agent {
     }
 }
 
-enum Job {
-    Login(Result<Zeroizing<String>, Error>),
-    Call(u64, Result<Value, Error>),
-}
+const MAX_CONCURRENT_CALLS: usize = 6;
+
 enum End {
     Login,
     Paused,
@@ -254,13 +259,21 @@ async fn finished<T>(job: &mut Option<JoinHandle<T>>) -> Result<T, tokio::task::
         None => std::future::pending().await,
     }
 }
+async fn next_call(
+    calls: &mut JoinSet<(u64, Result<Value, Error>)>,
+) -> Result<(u64, Result<Value, Error>), tokio::task::JoinError> {
+    match calls.join_next().await {
+        Some(result) => result,
+        None => std::future::pending().await,
+    }
+}
 fn abort<T>(job: &mut Option<JoinHandle<T>>) {
     if let Some(job) = job.take() {
         job.abort();
     }
 }
-fn login_job(api: http::Api, password: Zeroizing<String>) -> JoinHandle<Job> {
-    tokio::spawn(async move { Job::Login(api.login(password).await) })
+fn login_job(api: http::Api, password: Zeroizing<String>) -> JoinHandle<Result<Zeroizing<String>, Error>> {
+    tokio::spawn(async move { api.login(password).await })
 }
 
 async fn worker(
@@ -273,8 +286,10 @@ async fn worker(
     let mut token = load_token(config.session_file.as_deref()).ok().flatten();
     let mut topics = Vec::<String>::new();
     let mut stream = None;
-    let mut job = None;
-    let mut probing = false;
+    let mut login_task = None;
+    let mut calls: JoinSet<(u64, Result<Value, Error>)> = JoinSet::new();
+    let mut call_tasks: HashMap<TaskId, (u64, AbortHandle)> = HashMap::new();
+    let mut probe_task: Option<TaskId> = None;
     let mut blocked = false;
     let mut resume_on_wake = false;
     let mut login_after = Instant::now();
@@ -290,12 +305,12 @@ async fn worker(
                         shared.clone(),
                     )));
                 }
-            } else if job.is_none() {
+            } else if login_task.is_none() {
                 if config.local_credentials && Instant::now() >= login_after {
                     match local_password() {
                         Ok(password) => {
                             status(&shared, Status::Connecting);
-                            job = Some(login_job(api.clone(), password));
+                            login_task = Some(login_job(api.clone(), password));
                         }
                         Err(_) => {
                             blocked = true;
@@ -313,8 +328,11 @@ async fn worker(
                 let Some(command) = command else { break; };
                 match command {
                     Command::Watch(wanted) => {
-                        if probing && !wanted.iter().any(|t| t == "clients") {
-                            abort(&mut job); probing = false;
+                        if let Some(tid) = probe_task.filter(|_| !wanted.iter().any(|t| t == "clients")) {
+                            if let Some((_, handle)) = call_tasks.remove(&tid) {
+                                handle.abort();
+                            }
+                            probe_task = None;
                         }
                         abort(&mut stream); topics = wanted;
                         if topics.is_empty() { status(&shared, Status::Sleeping); }
@@ -322,60 +340,103 @@ async fn worker(
                     }
                     Command::Retry => { abort(&mut stream); blocked = false; }
                     Command::Forget => {
-                        abort(&mut stream); abort(&mut job); probing = false; token = None; blocked = true;
+                        abort(&mut stream);
+                        abort(&mut login_task);
+                        calls.abort_all();
+                        call_tasks.clear();
+                        probe_task = None;
+                        token = None;
+                        blocked = true;
                         if let Some(path) = &config.session_file { let _ = fs::remove_file(path); }
                         update(&shared, |s| { s.authenticated = false; s.values.clear(); s.status = Status::Login; });
                     }
                     Command::Login(password) => {
-                        if job.is_none() && Instant::now() >= login_after {
+                        if login_task.is_none() && Instant::now() >= login_after {
                             abort(&mut stream); token = None;
                             update(&shared, |s| { s.authenticated = false; s.values.clear(); s.status = Status::Connecting; });
-                            job = Some(login_job(api.clone(), password));
+                            login_task = Some(login_job(api.clone(), password));
                         }
                     }
                     Command::Call(id, request) => {
-                        if let Some(token) = token.as_ref().filter(|_| job.is_none()) {
-                            let api = api.clone(); let token = token.clone();
-                            job = Some(tokio::spawn(async move { Job::Call(id, api.call(&token, request.method, &request.path, request.body).await) }));
+                        if let Some(token) = token.as_ref().filter(|_| call_tasks.len() < MAX_CONCURRENT_CALLS) {
+                            let api = api.clone();
+                            let token = token.clone();
+                            let handle = calls.spawn(async move {
+                                (id, api.call(&token, request.method, &request.path, request.body).await)
+                            });
+                            call_tasks.insert(handle.id(), (id, handle));
                         } else {
                             let error = if token.is_none() { Error::Login } else { Error::Busy(1) };
                             let _ = replies.try_send(Reply { id, result: Err(error) });
                         }
                     }
                     Command::Probe(id, address) => {
-                        if config.local_credentials && token.is_some() && job.is_none() {
-                            probing = true;
-                            job = Some(tokio::spawn(async move { Job::Call(id, Ok(connectivity::probe(address).await)) }));
+                        if config.local_credentials && token.is_some() && probe_task.is_none() && call_tasks.len() < MAX_CONCURRENT_CALLS {
+                            let handle = calls.spawn(async move {
+                                (id, Ok(connectivity::probe(address).await))
+                            });
+                            let tid = handle.id();
+                            probe_task = Some(tid);
+                            call_tasks.insert(tid, (id, handle));
                         } else {
                             let error = if !config.local_credentials { Error::LocalOnly } else if token.is_none() { Error::Login } else { Error::Busy(1) };
                             let _ = replies.try_send(Reply { id, result: Err(error) });
                         }
                     }
+                    Command::Cancel(target_id) => {
+                        if let Some(tid) = call_tasks.iter().find_map(|(k, (id, _))| (*id == target_id).then_some(*k)) {
+                            if let Some((_, handle)) = call_tasks.remove(&tid) {
+                                handle.abort();
+                            }
+                            if probe_task == Some(tid) {
+                                probe_task = None;
+                            }
+                        }
+                    }
                 }
             }
-            result = finished(&mut job) => {
-                job = None;
-                probing = false;
+            result = finished(&mut login_task) => {
+                login_task = None;
                 match result {
-                    Ok(Job::Login(Ok(value))) => {
+                    Ok(Ok(value)) => {
                         // Persistence failure must not prevent an in-memory login.
                         // Credentials are never written beside public appearance data.
                         let _ = save_token(config.session_file.as_deref(), &value);
                         token = Some(value); blocked = false;
                         update(&shared, |s| s.authenticated = true);
                     }
-                    Ok(Job::Login(Err(error))) => {
+                    Ok(Err(error)) => {
                         login_after = Instant::now() + Duration::from_secs(match error { Error::Busy(n) => n, _ => 3 });
                         blocked = true; status(&shared, Status::Login);
                     }
-                    Ok(Job::Call(id, result)) => {
+                    Err(_) => status(&shared, Status::Reconnecting),
+                }
+            }
+            result = next_call(&mut calls) => {
+                match result {
+                    Ok((id, result)) => {
+                        if let Some(tid) = call_tasks.iter().find_map(|(k, (cid, _))| (*cid == id).then_some(*k)) {
+                            call_tasks.remove(&tid);
+                            if probe_task == Some(tid) {
+                                probe_task = None;
+                            }
+                        }
                         if result == Err(Error::Login) {
                             token = None; abort(&mut stream); blocked = !config.local_credentials;
                             update(&shared, |s| { s.authenticated = false; s.values.clear(); s.status = Status::Login; });
                         }
                         let _ = replies.try_send(Reply { id, result });
                     }
-                    Err(_) => status(&shared, Status::Reconnecting),
+                    Err(err) => {
+                        if let Some((id, _)) = call_tasks.remove(&err.id()) {
+                            if probe_task == Some(err.id()) {
+                                probe_task = None;
+                            }
+                            if !err.is_cancelled() {
+                                let _ = replies.try_send(Reply { id, result: Err(Error::Unavailable) });
+                            }
+                        }
+                    }
                 }
             }
             result = finished(&mut stream) => {
@@ -394,7 +455,8 @@ async fn worker(
         }
     }
     abort(&mut stream);
-    abort(&mut job);
+    abort(&mut login_task);
+    calls.abort_all();
 }
 
 async fn watch(

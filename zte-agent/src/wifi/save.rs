@@ -4,15 +4,52 @@ use super::Wireless;
 use crate::ubus;
 use serde_json::{json, Map, Value};
 use std::collections::BTreeMap;
-use std::sync::Mutex;
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::{Mutex, PoisonError};
 use std::time::{Duration, Instant};
 
-static WRITER: Mutex<()> = Mutex::new(());
+static IN_FLIGHT: AtomicBool = AtomicBool::new(false);
+static NEXT_JOB_ID: AtomicU64 = AtomicU64::new(1);
+static APPLY_JOB: Mutex<ApplyJob> = Mutex::new(ApplyJob::idle());
+
+struct ApplyJob {
+    id: u64,
+    state: &'static str,
+    started_at: Option<Instant>,
+    error: Option<String>,
+}
+impl ApplyJob {
+    const fn idle() -> Self {
+        Self {
+            id: 0,
+            state: "idle",
+            started_at: None,
+            error: None,
+        }
+    }
+}
+
+struct WriteGuard;
+impl WriteGuard {
+    fn acquire() -> Option<Self> {
+        IN_FLIGHT
+            .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
+            .ok()
+            .map(|_| Self)
+    }
+}
+impl Drop for WriteGuard {
+    fn drop(&mut self) {
+        IN_FLIGHT.store(false, Ordering::Release);
+    }
+}
+
 type Failure = (u16, String);
 fn failed(error: String) -> Failure {
     (503, error)
 }
 
+#[derive(Clone)]
 struct Change {
     path: String,
     value: String,
@@ -102,6 +139,7 @@ fn plan(body: &Value, current: &Wireless, guest: bool) -> Result<Vec<Change>, Fa
             } else {
                 "wifi1"
             };
+            firmware = true;
             paths.push(format!("wireless.{radio}.disabled"));
         } else if let Some((option, band @ ("2g" | "5g"))) = key.rsplit_once('_') {
             let radio = if band == "2g" { "wifi0" } else { "wifi1" };
@@ -137,7 +175,7 @@ fn plan(body: &Value, current: &Wireless, guest: bool) -> Result<Vec<Change>, Fa
                 }
                 "txpowerpercent" => value.parse::<u8>().is_ok_and(|v| (1..=100).contains(&v)),
                 "channel" => {
-                    value == "auto"
+                    value.eq_ignore_ascii_case("auto")
                         || value == "0"
                         || value.parse::<u16>().is_ok_and(|v| {
                             if path.contains("wifi0") {
@@ -149,7 +187,7 @@ fn plan(body: &Value, current: &Wireless, guest: bool) -> Result<Vec<Change>, Fa
                         })
                 }
                 "htmode" => {
-                    value == "auto"
+                    value.eq_ignore_ascii_case("auto")
                         || ["EHT", "HE", "VHT", "HT"].iter().any(|prefix| {
                             value.strip_prefix(prefix).is_some_and(|width| {
                                 matches!(width, "20" | "40")
@@ -166,20 +204,52 @@ fn plan(body: &Value, current: &Wireless, guest: bool) -> Result<Vec<Change>, Fa
             if !valid {
                 return Err((400, format!("Invalid value for {key}")));
             }
-            let stored = if option == "guest_active_time" {
-                // Public clients use minutes; the firmware stores seconds.
-                (value.parse::<u32>().unwrap() * 60).to_string()
-            } else {
-                value.clone()
+            let stored = match option {
+                "guest_active_time" => {
+                    // Public clients use minutes; the firmware stores seconds.
+                    (value.parse::<u32>().unwrap() * 60).to_string()
+                }
+                // B31 validate_wifi.sh enforces channel_rule=string(1,3) and stores '0' for auto.
+                "channel" if value.eq_ignore_ascii_case("auto") => "0".into(),
+                // B31 validate_wifi.sh expects capitalized "Auto" for htmode.
+                "htmode" if value.eq_ignore_ascii_case("auto") => "Auto".into(),
+                // B31 validate_wifi.sh expects "psk2+ccmp" rather than bare "psk2".
+                "encryption" if value == "psk2" => "psk2+ccmp".into(),
+                _ => value.clone(),
             };
             put(&mut changes, current, path, stored, firmware)?;
         }
     }
 
-    if !guest {
+    if guest {
+        let has_2g = fields.contains_key("guest_disabled_2g");
+        let has_5g = fields.contains_key("guest_disabled_5g");
+        let both_guest_sections = current.0.contains_key("wireless.guest_2g")
+            && current.0.contains_key("wireless.guest_5g");
+        if both_guest_sections && active_ap_count(current, &changes) == 3 {
+            if has_2g && has_5g {
+                return Err((
+                    409,
+                    "This firmware does not support 3 simultaneous APs (guest Wi-Fi on only one band while both 2.4 GHz and 5 GHz radios are active). Enable or disable both guest bands together.".into(),
+                ));
+            }
+            if has_2g ^ has_5g {
+                let (source, target) = if has_2g {
+                    ("wireless.guest_2g.disabled", "wireless.guest_5g.disabled")
+                } else {
+                    ("wireless.guest_5g.disabled", "wireless.guest_2g.disabled")
+                };
+                if let Some(val) = changes.get(source).map(|c| c.value.clone()) {
+                    put(&mut changes, current, target.into(), val, true)?;
+                }
+            }
+        }
+    } else {
         if let Some(input) = fields.get("wifi6_switch") {
             let enabled = scalar("wifi6_switch", input)? == "1";
-            if !enabled && current.get("zte_mbb.mlo_enable") == "1" {
+            if !enabled
+                && (current.get("zte_mbb.mlo") == "1" || current.get("zte_mbb.mlo_enable") == "1")
+            {
                 return Err((
                     409,
                     "Disable MLO before selecting Wi-Fi compatibility mode".into(),
@@ -205,13 +275,72 @@ fn plan(body: &Value, current: &Wireless, guest: bool) -> Result<Vec<Change>, Fa
                 )?;
             }
         }
+        // Auto-heal an asymmetric 3-AP guest configuration (which causes B31 QCMAP
+        // mode=4 "unsupported wifi mode" and a 60s hostapd timeout) when enabling
+        // Wi-Fi or re-enabling the second radio.
+        let both_guest_sections = current.0.contains_key("wireless.guest_2g")
+            && current.0.contains_key("wireless.guest_5g");
+        if both_guest_sections {
+            let g2 = current.get("guest_2g.disabled");
+            let g5 = current.get("guest_5g.disabled");
+            let asymmetric_guest =
+                (g2 == "0" && g5 == "1") || (g2 == "1" && g5 == "0");
+            let turning_on = changes
+                .values()
+                .any(|c| c.path.ends_with(".wifi_onoff") && c.value == "1");
+            if asymmetric_guest && (turning_on || active_ap_count(current, &changes) == 3) {
+                if g2 == "1" {
+                    put(
+                        &mut changes,
+                        current,
+                        "wireless.guest_2g.disabled".into(),
+                        "0".into(),
+                        true,
+                    )?;
+                }
+                if g5 == "1" {
+                    put(
+                        &mut changes,
+                        current,
+                        "wireless.guest_5g.disabled".into(),
+                        "0".into(),
+                        true,
+                    )?;
+                }
+            }
+        }
     }
     Ok(changes.into_values().collect())
 }
 
+fn active_ap_count(current: &Wireless, changes: &BTreeMap<String, Change>) -> usize {
+    let val = |path: &str| -> String {
+        changes
+            .get(path)
+            .map(|c| c.value.clone())
+            .unwrap_or_else(|| current.0.get(path).cloned().unwrap_or_default())
+    };
+    let mut count = 0;
+    for (radio, main, guest) in [
+        ("wireless.wifi0.disabled", "wireless.main_2g.disabled", "wireless.guest_2g.disabled"),
+        ("wireless.wifi1.disabled", "wireless.main_5g.disabled", "wireless.guest_5g.disabled"),
+    ] {
+        if val(radio) == "1" {
+            continue;
+        }
+        if val(main) != "1" {
+            count += 1;
+        }
+        if val(guest) == "0" {
+            count += 1;
+        }
+    }
+    count
+}
+
 fn standard_width(width: &str, modern: bool, band2: bool) -> Result<String, Failure> {
-    if width == "auto" {
-        return Ok(width.into());
+    if width.eq_ignore_ascii_case("auto") {
+        return Ok("Auto".into());
     }
     let number = width.trim_start_matches(|c: char| c.is_ascii_alphabetic());
     if !matches!(number, "20" | "40")
@@ -241,6 +370,9 @@ trait Backend {
     fn commit(&mut self, package: &str) -> Result<(), String>;
     fn apply(&mut self, firmware: &Value) -> Result<(), String>;
     fn ready(&mut self) -> Result<bool, String>;
+    fn load_status(&mut self) -> Option<String> {
+        None
+    }
 }
 
 struct Device;
@@ -272,15 +404,19 @@ impl Backend for Device {
         let report = ubus::call_bounded("zwrt_wlan", "report", Some("{}"), 1)?;
         Ok(report["load_status"].as_str() == Some("idle"))
     }
+    fn load_status(&mut self) -> Option<String> {
+        std::fs::read_to_string("/tmp/zte_wlan_load_status")
+            .ok()
+            .map(|s| s.trim().to_string())
+            .filter(|s| !s.is_empty())
+    }
 }
 
-fn save(
+fn commit_and_apply(
     backend: &mut impl Backend,
     body: &Value,
     guest: bool,
-    settle: Duration,
-    wait: Duration,
-) -> Result<Value, Failure> {
+) -> Result<Option<Vec<Change>>, Failure> {
     let current = backend.read().map_err(failed)?;
     let changes = plan(body, &current, guest)?;
     let changed: Vec<_> = changes
@@ -288,7 +424,7 @@ fn save(
         .filter(|c| current.0.get(&c.path) != Some(&c.value))
         .collect();
     if changed.is_empty() {
-        return Ok(json!({"status":"ok", "note":"no changes"}));
+        return Ok(None);
     }
     let mut firmware = json!({});
     let mut packages = std::collections::BTreeSet::new();
@@ -311,6 +447,15 @@ fn save(
         backend.commit(package).map_err(failed)?;
     }
     backend.apply(&firmware).map_err(failed)?;
+    Ok(Some(changes))
+}
+
+fn verify(
+    backend: &mut impl Backend,
+    changes: &[Change],
+    settle: Duration,
+    wait: Duration,
+) -> Result<Value, Failure> {
     // The firmware queues a reload. Allow it to start before treating idle
     // plus a UCI read as confirmation. Poll reads only; never replay a write.
     std::thread::sleep(settle);
@@ -320,6 +465,16 @@ fn save(
         // only these bounded reads; a temporary report failure is not a
         // reason to replay the change or claim it was saved successfully.
         if backend.ready().unwrap_or(false) {
+            if let Some(status) = backend.load_status() {
+                if status.contains("failed") {
+                    return Err((
+                        503,
+                        format!(
+                            "Firmware failed to apply Wi-Fi ({status}). Check Wi-Fi settings and retry."
+                        ),
+                    ));
+                }
+            }
             if let Ok(actual) = backend.read() {
                 if changes
                     .iter()
@@ -336,20 +491,118 @@ fn save(
     }
 }
 
+fn save(
+    backend: &mut impl Backend,
+    body: &Value,
+    guest: bool,
+    settle: Duration,
+    wait: Duration,
+) -> Result<Value, Failure> {
+    let Some(changes) = commit_and_apply(backend, body, guest)? else {
+        return Ok(json!({"status":"ok", "note":"no changes"}));
+    };
+    verify(backend, &changes, settle, wait)
+}
+
+pub(super) fn apply_status() -> (u16, Value) {
+    let job = APPLY_JOB.lock().unwrap_or_else(PoisonError::into_inner);
+    let elapsed_ms = job
+        .started_at
+        .map(|t| t.elapsed().as_millis() as u64)
+        .unwrap_or(0);
+    (
+        200,
+        json!({
+            "ok": true,
+            "data": {
+                "job_id": job.id,
+                "state": job.state,
+                "elapsed_ms": elapsed_ms,
+                "error": job.error,
+            }
+        }),
+    )
+}
+
+pub(super) fn settings_async(body: &[u8], guest: bool) -> (u16, Value) {
+    let body: Value = match serde_json::from_slice(body) {
+        Ok(value) => value,
+        Err(_) => return (400, json!({"ok":false, "error":"invalid JSON"})),
+    };
+    let Some(guard) = WriteGuard::acquire() else {
+        return (
+            409,
+            json!({"ok":false, "error":"Another Wi-Fi change is in progress"}),
+        );
+    };
+    match commit_and_apply(&mut Device, &body, guest) {
+        Ok(None) => (
+            200,
+            json!({"ok":true, "data":{"status":"ok", "note":"no changes", "verified":true}}),
+        ),
+        Ok(Some(changes)) => {
+            let job_id = NEXT_JOB_ID.fetch_add(1, Ordering::Relaxed);
+            {
+                let mut job = APPLY_JOB.lock().unwrap_or_else(PoisonError::into_inner);
+                job.id = job_id;
+                job.state = "applying";
+                job.started_at = Some(Instant::now());
+                job.error = None;
+            }
+            let spawned = std::thread::Builder::new()
+                .name("wifi-verify".into())
+                .spawn(move || {
+                    let _guard = guard;
+                    let result = verify(
+                        &mut Device,
+                        &changes,
+                        Duration::from_secs(2),
+                        Duration::from_secs(60),
+                    );
+                    let mut job = APPLY_JOB.lock().unwrap_or_else(PoisonError::into_inner);
+                    if job.id == job_id {
+                        match result {
+                            Ok(_) => {
+                                job.state = "verified";
+                                job.error = None;
+                            }
+                            Err((_, msg)) => {
+                                job.state = "failed";
+                                job.error = Some(msg);
+                            }
+                        }
+                    }
+                });
+            if spawned.is_err() {
+                let mut job = APPLY_JOB.lock().unwrap_or_else(PoisonError::into_inner);
+                if job.id == job_id {
+                    job.state = "failed";
+                    job.error = Some("failed to start verification task".into());
+                }
+                return (
+                    503,
+                    json!({"ok":false, "error":"failed to start verification task"}),
+                );
+            }
+            (
+                202,
+                json!({"ok":true, "data":{"status":"applying", "job_id":job_id, "verified":false}}),
+            )
+        }
+        Err((status, error)) => (status, json!({"ok":false, "error":error})),
+    }
+}
+
 pub(super) fn settings(body: &[u8], guest: bool) -> (u16, Value) {
     let body: Value = match serde_json::from_slice(body) {
         Ok(value) => value,
         Err(_) => return (400, json!({"ok":false, "error":"invalid JSON"})),
     };
-    let _guard = match WRITER.try_lock() {
-        Ok(guard) => guard,
-        Err(std::sync::TryLockError::Poisoned(error)) => error.into_inner(),
-        Err(_) => {
-            return (
-                409,
-                json!({"ok":false, "error":"Another Wi-Fi change is in progress"}),
-            )
-        }
+    let Some(_guard) = WriteGuard::acquire() else {
+        return (
+            409,
+            json!({"ok":false, "error":"Another Wi-Fi change is in progress"}),
+        );
     };
     match save(
         &mut Device,
@@ -377,6 +630,7 @@ mod tests {
         fail: &'static str,
         ignore: &'static str,
         unavailable_reports: usize,
+        load_status: Option<String>,
     }
     impl Default for Fake {
         fn default() -> Self {
@@ -386,6 +640,7 @@ mod tests {
                 fail: "",
                 ignore: "",
                 unavailable_reports: 0,
+                load_status: None,
             }
         }
     }
@@ -435,6 +690,9 @@ mod tests {
                 return Err("firmware is restarting".into());
             }
             Ok(self.fail != "busy")
+        }
+        fn load_status(&mut self) -> Option<String> {
+            self.load_status.clone()
         }
     }
     fn run(fake: &mut Fake, body: Value, guest: bool) -> Result<Value, Failure> {
@@ -603,5 +861,130 @@ mod tests {
         .unwrap();
         assert_eq!(result["verified"], true);
         assert_eq!(fake.calls, ["apply"]);
+    }
+
+    #[test]
+    fn b31_contracts_normalize_channel_htmode_encryption_mlo_and_radio_disable() {
+        let mut fake = Fake::default();
+        fake.config
+            .0
+            .insert("wireless.wifi0.disabled".into(), "0".into());
+        fake.config
+            .0
+            .insert("wireless.wifi0.channel".into(), "6".into());
+        run(
+            &mut fake,
+            json!({
+                "radio2_disabled": "1",
+                "channel_2g": "auto",
+                "htmode_2g": "auto",
+                "encryption_2g": "psk2"
+            }),
+            false,
+        )
+        .unwrap();
+        assert_eq!(fake.config.get("wifi0.disabled"), "1");
+        assert_eq!(fake.config.get("wifi0.channel"), "0");
+        assert_eq!(fake.config.get("wifi0.htmode"), "Auto");
+        assert_eq!(fake.config.get("main_2g.encryption"), "psk2+ccmp");
+        // Radio disable, channel, and htmode must go through firmware `zwrt_wlan set`,
+        // not bare `uci set`.
+        assert!(!fake
+            .calls
+            .iter()
+            .any(|c| c == "set wireless.wifi0.disabled"));
+        assert!(fake.calls.iter().any(|c| c == "apply"));
+
+        // MLO conflict check must honor B31's `wireless.zte_mbb.mlo`.
+        let mut mlo_fake = Fake::default();
+        mlo_fake
+            .config
+            .0
+            .insert("wireless.zte_mbb.mlo".into(), "1".into());
+        let err = run(&mut mlo_fake, json!({"wifi6_switch": "0"}), false).unwrap_err();
+        assert_eq!(err.0, 409);
+
+        // `apply_status()` reports a well-formed JSON envelope.
+        let (status, body) = apply_status();
+        assert_eq!(status, 200);
+        assert_eq!(body["ok"], true);
+        assert!(body["data"]["state"].is_string());
+    }
+
+    #[test]
+    fn guest_single_band_toggle_syncs_both_bands_to_avoid_qcmap_mode4() {
+        let mut fake = Fake::default();
+        fake.config.0.insert("wireless.wifi0.disabled".into(), "0".into());
+        fake.config.0.insert("wireless.wifi1.disabled".into(), "0".into());
+        fake.config.0.insert("wireless.main_2g.disabled".into(), "0".into());
+        fake.config.0.insert("wireless.main_5g.disabled".into(), "0".into());
+        fake.config.0.insert("wireless.guest_2g.disabled".into(), "1".into());
+        fake.config.0.insert("wireless.guest_5g.disabled".into(), "1".into());
+
+        // Enabling only guest_2g while both radios are active would produce 3 APs
+        // (QCMAP mode=4 unsupported); save.rs must couple guest_5g too (4 APs, mode=7).
+        run(&mut fake, json!({"guest_disabled_2g": "0"}), true).unwrap();
+        assert_eq!(fake.config.get("guest_2g.disabled"), "0");
+        assert_eq!(fake.config.get("guest_5g.disabled"), "0");
+
+        // Disabling only guest_2g likewise disables guest_5g to return cleanly to 2 APs.
+        run(&mut fake, json!({"guest_disabled_2g": "1"}), true).unwrap();
+        assert_eq!(fake.config.get("guest_2g.disabled"), "1");
+        assert_eq!(fake.config.get("guest_5g.disabled"), "1");
+    }
+
+    #[test]
+    fn conflicting_explicit_guest_bands_in_dual_radio_mode_return_409() {
+        let mut fake = Fake::default();
+        fake.config.0.insert("wireless.wifi0.disabled".into(), "0".into());
+        fake.config.0.insert("wireless.wifi1.disabled".into(), "0".into());
+        fake.config.0.insert("wireless.main_2g.disabled".into(), "0".into());
+        fake.config.0.insert("wireless.main_5g.disabled".into(), "0".into());
+        fake.config.0.insert("wireless.guest_2g.disabled".into(), "1".into());
+        fake.config.0.insert("wireless.guest_5g.disabled".into(), "1".into());
+
+        let err = run(
+            &mut fake,
+            json!({"guest_disabled_2g": "0", "guest_disabled_5g": "1"}),
+            true,
+        )
+        .unwrap_err();
+        assert_eq!(err.0, 409);
+        assert!(fake.calls.is_empty());
+    }
+
+    #[test]
+    fn enabling_wifi_heals_asymmetric_three_ap_guest_state() {
+        let mut fake = Fake::default();
+        fake.config.0.insert("wireless.zte_mbb.wifi_onoff".into(), "0".into());
+        fake.config.0.insert("wireless.wifi0.disabled".into(), "0".into());
+        fake.config.0.insert("wireless.wifi1.disabled".into(), "0".into());
+        fake.config.0.insert("wireless.main_2g.disabled".into(), "0".into());
+        fake.config.0.insert("wireless.main_5g.disabled".into(), "0".into());
+        fake.config.0.insert("wireless.guest_2g.disabled".into(), "0".into());
+        fake.config.0.insert("wireless.guest_5g.disabled".into(), "1".into());
+
+        run(&mut fake, json!({"wifi_onoff": "1"}), false).unwrap();
+        assert_eq!(fake.config.get("zte_mbb.wifi_onoff"), "1");
+        assert_eq!(fake.config.get("guest_2g.disabled"), "0");
+        assert_eq!(fake.config.get("guest_5g.disabled"), "0");
+    }
+
+    #[test]
+    fn verify_fails_fast_when_firmware_reports_power_on_failed() {
+        let mut fake = Fake {
+            load_status: Some("power_on failed".into()),
+            ..Fake::default()
+        };
+        let err = save(
+            &mut fake,
+            &json!({"wifi_onoff": "0"}),
+            false,
+            Duration::ZERO,
+            Duration::from_secs(30),
+        )
+        .unwrap_err();
+        assert_eq!(err.0, 503);
+        assert!(err.1.contains("power_on failed"));
     }
 }

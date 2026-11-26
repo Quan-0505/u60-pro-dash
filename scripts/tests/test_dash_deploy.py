@@ -58,8 +58,8 @@ exec {shutil.which('flock')} "$@"
 case "$1" in stop) rm -f "$TEST_VENDOR";; start|restart) touch "$TEST_VENDOR";; *) exit 9;; esac
 ''');self.vendor_script.chmod(0o700)
         manager=(REPO/'scripts/dash/manage.sh').read_text()
-        manager=manager.replace('ROOT=/data/u60-dash',f'ROOT={self.root}').replace('RUN=/tmp/u60-dash-run',f'RUN={self.run}').replace('START=/data/local/tmp/start_zte_agent.sh',f'START={self.start}').replace('LEGACY=/data/zte-agent',f'LEGACY={self.legacy}')
-        manager=manager.replace('grep -qF "$START" /etc/rc.local','grep -qF "$START" '+str(self.base/'rc.local')).replace('/data/local/tmp/zte-agent',str(self.base/'absent-agent')).replace('/data/open-u60/update/pending',str(self.base/'no-ota')).replace('/tmp/u60-native-screen-trial',str(self.base/'no-trial'))
+        manager=manager.replace('ROOT=/data/u60-dash',f'ROOT={self.root}').replace('RUN=/tmp/u60-dash-run',f'RUN={self.run}').replace('START=/data/local/tmp/start_zte_agent.sh',f'START={self.start}').replace('LEGACY=/data/zte-agent',f'LEGACY={self.legacy}').replace('RC_LOCAL=/etc/rc.local',f'RC_LOCAL={self.base}/rc.local')
+        manager=manager.replace('/data/local/tmp/zte-agent',str(self.base/'absent-agent')).replace('/data/open-u60/update/pending',str(self.base/'no-ota')).replace('/tmp/u60-native-screen-trial',str(self.base/'no-trial'))
         self.manager=self.root/'manage.sh';self.manager.write_text(manager)
         self.service=(REPO/'scripts/dash/service.sh').read_text().replace('ROOT=/data/u60-dash',f'ROOT={self.root}').replace('RUN=/tmp/u60-dash-run',f'RUN={self.run}').replace('VENDOR=/etc/init.d/zte_topsw_devui',f'VENDOR={self.vendor_script}').replace('BACKLIGHT=/sys/class/leds/led:lcd/brightness',f'BACKLIGHT={self.light}')
         self.service=self.service.replace('PREFS=/data/local/tmp/u60-native-screen/appearance.json',f'PREFS={self.base}/appearance.json')
@@ -310,6 +310,65 @@ int main(int argc,char**argv){
             self.replace_manager()
         self.assertEqual(self.manager.read_bytes(), original)
 
+    def test_fresh_install_upgrade_rollback_and_restore_to_factory(self):
+        # Simulate a factory-fresh device: no legacy zte-agent, no startup.sh.
+        self.old.terminate(); self.old.wait()
+        self.release('one'); self.release('two')
+        self.legacy.unlink(); self.start.unlink()
+        rc_local = self.base / 'rc.local'
+        rc_local.write_text('#!/bin/sh\nexit 0\n')
+        # Seed fresh env, health baseline, and rc.local hook just like deploy.py::bootstrap_fresh.
+        (self.root / 'agent.env').write_text(DEPLOY.format_agent_env('fresh-secret'))
+        (self.root / 'health.json').write_text('{"tailscale":false,"gateway":false,"proxy":false,"proxy_capture":null}\n')
+        rc_local.write_text(f'#!/bin/sh\nsh {self.start}\nexit 0\n')
+
+        r = self.manage('install', 'one')
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.installed('one')
+        self.assertTrue((self.root / 'original' / 'fresh').is_file())
+        self.assertFalse(self.vendor.exists())
+
+        # Upgrading from fresh install runs normal dash-export-env and tracks previous.
+        r = self.manage('install', 'two')
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.installed('two')
+        self.assertEqual((self.root / 'previous').read_text().strip(), 'one')
+
+        # Rollback back to v1 works identically.
+        r = self.manage('rollback')
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.installed('one')
+
+        # Restore cleanly returns a fresh device back to pure factory state.
+        r = self.manage('restore')
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertFalse(self.start.exists())
+        self.assertFalse(self.legacy.exists())
+        self.assertEqual(rc_local.read_text(), '#!/bin/sh\nexit 0\n')
+        self.assertTrue(self.vendor.exists())
+        self.assertEqual(self.light.read_text(), '23\n')
+        status = self.manage('status').stdout
+        self.assertIn('selected=none', status)
+        self.assertIn('original_agent=none', status)
+
+    def test_fresh_install_bad_screen_rolls_back_to_factory(self):
+        self.old.terminate(); self.old.wait()
+        self.release('bad')
+        self.legacy.unlink(); self.start.unlink()
+        rc_local = self.base / 'rc.local'
+        rc_local.write_text(f'#!/bin/sh\nsh {self.start}\nexit 0\n')
+        (self.root / 'agent.env').write_text(DEPLOY.format_agent_env('fresh-secret'))
+        (self.root / 'health.json').write_text('{"tailscale":false,"gateway":false,"proxy":false,"proxy_capture":null}\n')
+
+        r = self.manage('install', 'bad', env={**self.env, 'TEST_BAD_SCREEN': '1'})
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.wait(lambda: (self.root / 'current').exists() and (self.root / 'current').read_text().strip() == 'none' and not (self.root / 'pending').exists())
+        self.assertFalse(self.start.exists())
+        self.assertFalse(self.legacy.exists())
+        self.assertEqual(rc_local.read_text(), '#!/bin/sh\nexit 0\n')
+        self.assertTrue(self.vendor.exists())
+        self.assertEqual(self.light.read_text(), '23\n')
+
     def test_manager_replacement_does_not_bypass_an_active_operation_lock(self):
         original = self.manager.read_bytes()
         with (self.root / 'operation.lock').open('w') as lock:
@@ -319,5 +378,87 @@ int main(int argc,char**argv){
                 self.replace_manager()
             self.assertEqual((self.root / 'operation.lock').stat().st_ino, inode)
         self.assertEqual(self.manager.read_bytes(), original)
+
+    def test_format_agent_env_quotes_special_characters_and_rejects_newlines(self):
+        env_text = DEPLOY.format_agent_env("p@ss'w$HOME`id`!")
+        result = subprocess.run(
+            ['sh', '-c', f"{env_text}printf '%s' \"$ZTE_AGENT_PASSWORD\""],
+            capture_output=True, text=True, check=True,
+        )
+        self.assertEqual(result.stdout, "p@ss'w$HOME`id`!")
+        for bad in ['', 'line1\nline2', 'line1\rline2']:
+            with self.assertRaises(DEPLOY.Failure):
+                DEPLOY.format_agent_env(bad)
+
+class UnlockTests(unittest.TestCase):
+    def setUp(self):
+        self.unlock = DEPLOY._load_unlock()
+
+    def test_device_identity_accepts_u60_pro_and_hides_raw_imei(self):
+        imei = '860000012345678'
+        ident = self.unlock.device_identity({
+            'wa_inner_version': 'BD_CN_ZTE_MU5250V1.0.0B31',
+            'imei': imei,
+        })
+        self.assertEqual(ident['model'], 'ZTE MU5250')
+        self.assertEqual(ident['firmware'], 'BD_CN_ZTE_MU5250V1.0.0B31')
+        self.assertEqual(ident['fingerprint'], hashlib.sha256(imei.encode()).hexdigest())
+        self.assertNotIn(imei, str(ident))
+        with self.assertRaises(ValueError):
+            self.unlock.device_identity({'model': 'OtherRouter', 'version': '1.0', 'imei': imei})
+
+    def test_patch_outer_and_openssl_roundtrip(self):
+        import io
+        import tarfile
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            orig_rc = b"#!/bin/sh\necho 0 > /sys/devices/platform/soc/usb_op/debug_enable\nexit 0\n"
+            inner_buf = io.BytesIO()
+            with tarfile.open(fileobj=inner_buf, mode='w:gz') as inner:
+                info = tarfile.TarInfo(self.unlock.RC_LOCAL)
+                info.size = len(orig_rc)
+                info.mode = 0o755
+                inner.addfile(info, io.BytesIO(orig_rc))
+            inner_bytes = inner_buf.getvalue()
+
+            outer_path = root / 'outer.tgz'
+            with tarfile.open(outer_path, 'w:gz') as outer:
+                m = tarfile.TarInfo(self.unlock.INNER)
+                m.size = len(inner_bytes)
+                outer.addfile(m, io.BytesIO(inner_bytes))
+                md5 = (hashlib.md5(inner_bytes).hexdigest() + '\n').encode()
+                m2 = tarfile.TarInfo(self.unlock.MD5)
+                m2.size = len(md5)
+                outer.addfile(m2, io.BytesIO(md5))
+
+            patched_path = root / 'outer.patched.tgz'
+            logs = []
+            self.unlock.patch_outer(str(outer_path), str(patched_path), log=logs.append)
+
+            # Verify inner rc.local received the discovered usb_op payload and MD5 matches.
+            with tarfile.open(patched_path, 'r:gz') as outer:
+                new_inner = outer.extractfile(self.unlock.INNER).read()
+                new_md5 = outer.extractfile(self.unlock.MD5).read().decode().strip()
+            self.assertEqual(new_md5, hashlib.md5(new_inner).hexdigest())
+            with tarfile.open(fileobj=io.BytesIO(new_inner), mode='r:gz') as inner:
+                patched_rc = inner.extractfile(self.unlock.RC_LOCAL).read().decode()
+            self.assertIn(
+                "#!/bin/sh\necho 1 > /sys/devices/platform/soc/usb_op/debug_enable\n",
+                patched_rc,
+            )
+
+            # Second patch must refuse duplicate injection.
+            with self.assertRaises(self.unlock.UnlockError):
+                self.unlock.patch_outer(str(patched_path), str(root / 'twice.tgz'), log=logs.append)
+
+            # Encrypt/decrypt roundtrip + wrong password rejection.
+            enc_path = root / 'enc.bin'
+            dec_path = root / 'dec.tgz'
+            self.unlock.openssl('e', str(patched_path), str(enc_path), '860000012345678test-suffix')
+            self.unlock.openssl('d', str(enc_path), str(dec_path), '860000012345678test-suffix')
+            self.assertEqual(dec_path.read_bytes(), patched_path.read_bytes())
+            with self.assertRaises(subprocess.CalledProcessError):
+                self.unlock.openssl('d', str(enc_path), str(root / 'bad.tgz'), '860000012345678wrong')
 
 if __name__=='__main__':unittest.main()

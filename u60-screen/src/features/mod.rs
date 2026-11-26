@@ -280,6 +280,7 @@ pub struct Action {
     pub label: String,
     pub warning: String,
     pub enabled: bool,
+    pub confirm: bool,
     pub phrase: Option<String>,
 }
 impl Action {
@@ -289,6 +290,17 @@ impl Action {
             label: crate::i18n::tr(label).into(),
             warning: crate::i18n::tr(warning).into(),
             enabled: true,
+            confirm: true,
+            phrase: None,
+        }
+    }
+    pub fn immediate(id: &str, label: &str) -> Self {
+        Self {
+            id: id.into(),
+            label: crate::i18n::tr(label).into(),
+            warning: String::new(),
+            enabled: true,
+            confirm: false,
             phrase: None,
         }
     }

@@ -17,16 +17,22 @@ type Confirmation = {
 };
 const Context = createContext<{
   busy: boolean;
+  isBusy: (scope?: string) => boolean;
   confirm: (options: Confirmation) => Promise<boolean>;
-  run: <T>(work: () => Promise<T>) => Promise<T>;
-}>({ busy: false, confirm: async () => false, run: async (work) => work() });
+  run: <T>(work: () => Promise<T>, scope?: string) => Promise<T>;
+}>({
+  busy: false,
+  isBusy: () => false,
+  confirm: async () => false,
+  run: async (work) => work(),
+});
 export function MutationProvider({ children }: { children: ReactNode }) {
   const { epoch } = useSession();
-  const [busy, setBusy] = useState(false),
+  const [busyScopes, setBusyScopes] = useState<string[]>([]),
     [pending, setPending] = useState<Confirmation | null>(null),
     [phrase, setPhrase] = useState("");
   const resolve = useRef<((value: boolean) => void) | undefined>(undefined),
-    inFlight = useRef(false);
+    inFlight = useRef(new Set<string>());
   const finish = (yes: boolean) => {
     resolve.current?.(yes);
     resolve.current = undefined;
@@ -44,10 +50,12 @@ export function MutationProvider({ children }: { children: ReactNode }) {
     window.addEventListener("hashchange", cancel);
     return () => window.removeEventListener("hashchange", cancel);
   }, []);
+  const isBusy = (scope = "global") => busyScopes.includes(scope);
   return (
     <Context.Provider
       value={{
-        busy,
+        busy: isBusy("global"),
+        isBusy,
         confirm: (options) => {
           finish(false);
           setPending(options);
@@ -55,16 +63,16 @@ export function MutationProvider({ children }: { children: ReactNode }) {
             resolve.current = yes;
           });
         },
-        run: async (work) => {
-          if (inFlight.current)
+        run: async (work, scope = "global") => {
+          if (inFlight.current.has(scope))
             throw new Error("Wait for the current operation");
-          inFlight.current = true;
-          setBusy(true);
+          inFlight.current.add(scope);
+          setBusyScopes([...inFlight.current]);
           try {
             return await work();
           } finally {
-            inFlight.current = false;
-            setBusy(false);
+            inFlight.current.delete(scope);
+            setBusyScopes([...inFlight.current]);
           }
         },
       }}

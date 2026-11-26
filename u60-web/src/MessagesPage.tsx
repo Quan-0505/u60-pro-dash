@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { api, type ObjectData } from "./api";
 import { useReading, useResource } from "./live";
 import { useMutation } from "./mutations";
@@ -100,12 +100,30 @@ function Inbox() {
   const [selected, setSelected] = useState<string>(),
     [query, setQuery] = useState(""),
     [error, setError] = useState<Error>();
+  const autoMarked = useRef<Set<string>>(new Set());
   useEffect(() => {
     if (live?.seq) r.reload();
   }, [live?.seq]);
   const messages: Array<ObjectData> = (r.data?.messages || []).map(
     (m: ObjectData) => ({ ...m, body: decodeMessage(m.content) }),
   );
+  const openMessage = (m: ObjectData) => {
+    const idStr = String(m.id);
+    setSelected(idStr);
+    if (String(m.tag) === "1" && !autoMarked.current.has(idStr)) {
+      autoMarked.current.add(idStr);
+      void api("/api/sms/read", {
+        method: "POST",
+        body: { id: actions.ids([m.id]), tag: 0 },
+      })
+        .then(() => {
+          r.reload();
+        })
+        .catch(() => {
+          autoMarked.current.delete(idStr);
+        });
+    }
+  };
   const current = messages.find((m) => String(m.id) === selected);
   const change = async (kind: string) => {
     if (!current) return;
@@ -129,6 +147,7 @@ function Inbox() {
             ...(kind === "delete" ? {} : { tag: kind === "read" ? 0 : 1 }),
           },
         });
+        if (kind === "unread") autoMarked.current.delete(String(id));
         r.reload();
         if (kind === "delete") setSelected(undefined);
       });
@@ -162,7 +181,7 @@ function Inbox() {
               <button
                 className={selected === String(m.id) ? "selected" : ""}
                 key={m.id}
-                onClick={() => setSelected(String(m.id))}
+                onClick={() => openMessage(m)}
               >
                 <b>
                   {String(m.tag) === "1" ? "● " : ""}

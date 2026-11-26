@@ -82,7 +82,8 @@ export function LiveProvider({
       let watchdog: ReturnType<typeof setTimeout> | undefined;
       const touch = () => {
         clearTimeout(watchdog);
-        watchdog = setTimeout(() => ownController.abort(), 45000);
+        // Server keepalive is 15s; 25s detects half-open TCP drops promptly after Wi-Fi restarts.
+        watchdog = setTimeout(() => ownController.abort(), 25000);
       };
       try {
         touch();
@@ -191,14 +192,25 @@ export function LiveProvider({
       if (document.hidden) {
         disconnect();
         setLive((s) => ({ ...s, state: "paused" }));
-      } else void connect();
+      } else {
+        delay = 1000;
+        void connect();
+      }
+    };
+    const online = () => {
+      if (!document.hidden && token && topicKey) {
+        delay = 1000;
+        void connect();
+      }
     };
     void connect();
     document.addEventListener("visibilitychange", visibility);
+    window.addEventListener("online", online);
     return () => {
       disposed = true;
       disconnect();
       document.removeEventListener("visibilitychange", visibility);
+      window.removeEventListener("online", online);
     };
   }, [token, epoch, topicKey]);
   return <Context.Provider value={live}>{children}</Context.Provider>;

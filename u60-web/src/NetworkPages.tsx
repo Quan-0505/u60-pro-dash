@@ -4,7 +4,7 @@ import {
   ModeOverview,
   useOperating,
 } from "./Operating";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   ArrowDown,
   ArrowUp,
@@ -35,9 +35,16 @@ import {
   Stats,
   Status,
 } from "./ui";
-import { SettingsForm } from "./forms";
+import { SettingsForm, submitAsyncApply } from "./forms";
 import { cellular, clientsModel, usageModel } from "./models";
-import { guest, mobile, networkMode, wifiSpec, wifiStandard } from "./settings";
+import {
+  guest,
+  mobile,
+  networkMode,
+  wifiMaster,
+  wifiSpec,
+  wifiStandard,
+} from "./settings";
 import { go } from "./catalog";
 import { useMutation } from "./mutations";
 import { ServiceSummary } from "./ServicePages";
@@ -351,25 +358,42 @@ export function WifiShare({ compact = false }: { compact?: boolean }) {
 }
 export function WifiPage({ tab }: { tab: string }) {
   const mutation = useMutation(),
+    wifiBusy = mutation.isBusy("wifi"),
     [error, setError] = useState<Error>(),
+    [statusText, setStatusText] = useState(""),
     [revision, setRevision] = useState(0);
+  const active = useRef(true),
+    abortRef = useRef<AbortController | null>(null);
+  useEffect(() => {
+    active.current = true;
+    return () => {
+      active.current = false;
+      abortRef.current?.abort();
+    };
+  }, []);
+  const bump = () => setRevision((value) => value + 1);
   if (tab === "guest") return <SettingsForm spec={guest} />;
   return (
     <>
-      {tab === "radio" && (
+      {tab === "radio" ? (
+        <SettingsForm spec={wifiStandard} onApplied={bump} />
+      ) : (
         <SettingsForm
-          spec={wifiStandard}
-          onApplied={() => setRevision((value) => value + 1)}
+          key={"master" + revision}
+          spec={wifiMaster}
+          onApplied={bump}
         />
       )}
       <div className="two-columns">
         <SettingsForm
           key={"2g" + tab + revision}
           spec={wifiSpec("2g", tab === "radio")}
+          onApplied={bump}
         />
         <SettingsForm
           key={"5g" + tab + revision}
           spec={wifiSpec("5g", tab === "radio")}
+          onApplied={bump}
         />
       </div>
       {tab !== "radio" && (
@@ -380,9 +404,10 @@ export function WifiPage({ tab }: { tab: string }) {
               note="Use the same network name and password on both bands."
             />
             <ErrorState error={error} />
+            {statusText && <p className="subtle">{t(statusText)}</p>}
             <button
               className="btn"
-              disabled={mutation.busy}
+              disabled={wifiBusy}
               onClick={async () => {
                 try {
                   if (
@@ -393,28 +418,58 @@ export function WifiPage({ tab }: { tab: string }) {
                   )
                     return;
                   await mutation.run(async () => {
-                    const d = await api("/api/wifi/status");
-                    await api("/api/wifi/settings", {
-                      method: "PUT",
-                      timeout: 90000,
-                      body: {
-                        ssid_5g: d.ssid_2g,
-                        key_5g: d.key_2g,
-                        encryption_5g: d.encryption_2g,
-                      },
-                    });
-                    const fresh = await api("/api/wifi/status");
-                    if (
-                      fresh.ssid_5g !== d.ssid_2g ||
-                      fresh.key_5g !== d.key_2g
-                    )
-                      throw new Error(
-                        "The router has not confirmed the change.",
-                      );
-                    setRevision((r) => r + 1);
-                  });
+                    const controller = new AbortController();
+                    abortRef.current = controller;
+                    setError(undefined);
+                    setStatusText("Applying…");
+                    try {
+                      const d = await api("/api/wifi/status", {
+                        signal: controller.signal,
+                      });
+                      await submitAsyncApply({
+                        write: "/api/wifi/settings/async",
+                        fallbackWrite: "/api/wifi/settings",
+                        statusPath: "/api/wifi/apply",
+                        method: "PUT",
+                        timeout: 70000,
+                        signal: controller.signal,
+                        body: {
+                          ssid_5g: d.ssid_2g,
+                          key_5g: d.key_2g,
+                          encryption_5g: d.encryption_2g,
+                        },
+                        onStatus: (next) => {
+                          if (active.current) setStatusText(next);
+                        },
+                      });
+                      const fresh = await api("/api/wifi/status", {
+                        signal: controller.signal,
+                      });
+                      if (
+                        fresh.ssid_5g !== d.ssid_2g ||
+                        fresh.key_5g !== d.key_2g
+                      )
+                        throw new Error(
+                          "The router has not confirmed the change.",
+                        );
+                      if (active.current) {
+                        setStatusText("");
+                        bump();
+                      }
+                    } finally {
+                      if (abortRef.current === controller)
+                        abortRef.current = null;
+                    }
+                  }, "wifi");
                 } catch (e) {
-                  setError(e as Error);
+                  if ((e as Error)?.name === "AbortError") {
+                    if (active.current) setStatusText("");
+                    return;
+                  }
+                  if (active.current) {
+                    setStatusText("");
+                    setError(e as Error);
+                  }
                 }
               }}
             >

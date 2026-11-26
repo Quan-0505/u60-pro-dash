@@ -14,8 +14,13 @@ pub struct TsConfig {
     pub hostname: String,
     #[serde(default)]
     pub advertise_routes: Vec<String>,
-    #[serde(default = "default_true")]
+    #[serde(default)]
     pub hold_wakelock: bool,
+    /// Auto-pause tailscaled after this many minutes with zero connected local
+    /// clients (Wi-Fi / USB LAN), and auto-resume when a client connects.
+    /// 0 disables auto-pause (always on).
+    #[serde(default = "default_idle_timeout_mins")]
+    pub idle_timeout_mins: u32,
     #[serde(default)]
     pub tailscale_ssh: bool,
     #[serde(default = "default_true")]
@@ -36,6 +41,10 @@ fn default_true() -> bool {
     true
 }
 
+fn default_idle_timeout_mins() -> u32 {
+    10
+}
+
 impl Default for TsConfig {
     fn default() -> Self {
         Self {
@@ -43,7 +52,8 @@ impl Default for TsConfig {
             enrolled: false,
             hostname: default_hostname(),
             advertise_routes: Vec::new(),
-            hold_wakelock: true,
+            hold_wakelock: false,
+            idle_timeout_mins: default_idle_timeout_mins(),
             tailscale_ssh: false,
             accept_routes: true,
             accept_dns: false,
@@ -58,6 +68,7 @@ pub struct TsConfigPatch {
     pub hostname: Option<String>,
     pub advertise_routes: Option<Vec<String>>,
     pub hold_wakelock: Option<bool>,
+    pub idle_timeout_mins: Option<u32>,
     pub tailscale_ssh: Option<bool>,
     pub accept_routes: Option<bool>,
     pub accept_dns: Option<bool>,
@@ -86,6 +97,12 @@ impl TsConfig {
         }
         if let Some(v) = patch.hold_wakelock {
             self.hold_wakelock = v;
+        }
+        if let Some(v) = patch.idle_timeout_mins {
+            if v > 1440 {
+                return Err("idle_timeout_mins must be between 0 and 1440".into());
+            }
+            self.idle_timeout_mins = v;
         }
         if let Some(v) = patch.accept_routes {
             self.accept_routes = v;

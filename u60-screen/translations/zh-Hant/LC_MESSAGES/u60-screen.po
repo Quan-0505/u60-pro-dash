@@ -20,6 +20,12 @@ msgstr "U60 · 原生螢幕預覽"
 msgid "Wi-Fi 可用"
 msgstr "Wi-Fi 可用"
 
+msgid "Wi-Fi 总开关"
+msgstr "Wi-Fi 總開關"
+
+msgid "Wi-Fi 设置"
+msgstr "Wi-Fi 設定"
+
 msgid "Wi-Fi 连接卡片"
 msgstr "Wi-Fi 連線卡片"
 
@@ -35,6 +41,12 @@ msgstr "↓ 下載 / Mbps"
 msgid "−2 分钟"
 msgstr "−2 分鐘"
 
+msgid "今日流量 {0} · 本月流量 {1}"
+msgstr "今日流量 {0} · 本月流量 {1}"
+
+msgid "从下方向上滑动解锁"
+msgstr "由下向上滑動解鎖"
+
 msgid "优先响应与处理能力，温度和功耗可能上升。"
 msgstr "優先回應與處理能力，溫度與功耗可能上升。"
 
@@ -46,6 +58,9 @@ msgstr "訊號詳情"
 
 msgid "修改解锁密码"
 msgstr "修改解鎖密碼"
+
+msgid "停止等待"
+msgstr "停止等待"
 
 msgid "关闭密码解锁"
 msgstr "關閉密碼解鎖"
@@ -92,8 +107,14 @@ msgstr "密碼解鎖"
 msgid "屏幕亮度  "
 msgstr "螢幕亮度  "
 
+msgid "已关闭 · 无线热点已停用"
+msgstr "已關閉 · 無線熱點已停用"
+
 msgid "已开启 · 6–12 位数字密码"
 msgstr "已開啟 · 6–12 位數字密碼"
+
+msgid "已开启 · 控制 2.4G / 5G 热点"
+msgstr "已開啟 · 控制 2.4G / 5G 熱點"
 
 msgid "已联网"
 msgstr "已連線"
@@ -176,14 +197,14 @@ msgstr "本頁最近 2 分鐘的觀察記錄；斷線或暫停處留空。"
 msgid "机身屏幕使用本机后台账号连接。也可以输入后台密码重新登录。"
 msgstr "機身螢幕使用本機後臺賬號連線。也可以輸入後臺密碼重新登入。"
 
-msgid "松开继续"
-msgstr "鬆開繼續"
-
 msgid "极速：不区分应用优先级，按需使用带宽。"
 msgstr "極速：不區分應用程式優先順序，按需使用頻寬。"
 
 msgid "查看设置与操作需要密码"
 msgstr "檢視設定與操作需要密碼"
+
+msgid "正在处理，请稍候…"
+msgstr "正在處理，請稍候…"
 
 msgid "正在积累趋势"
 msgstr "正在累積趨勢"
@@ -214,6 +235,9 @@ msgstr "演示"
 
 msgid "演示运营商"
 msgstr "示範電信業者"
+
+msgid "点按数值可直接输入"
+msgstr "點按數值可直接輸入"
 
 msgid "熄屏"
 msgstr "熄屏"
@@ -308,9 +332,6 @@ msgstr "選擇即套用"
 msgid "重新连接"
 msgstr "重新連線"
 
-msgid "长按 1 秒解锁"
-msgstr "長按 1 秒解鎖"
-
 msgid "降低处理频率，吞吐能力可能下降。"
 msgstr "降低處理頻率，吞吐能力可能下降。"
 
@@ -334,6 +355,3 @@ msgstr "首頁配置"
 
 msgid "高铁优化"
 msgstr "高鐵最佳化"
-
-msgid "今日流量 {0} · 本月流量 {1}"
-msgstr "今日流量 {0} · 本月流量 {1}"

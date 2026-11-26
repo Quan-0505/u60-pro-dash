@@ -155,6 +155,37 @@ const messages: Record<string, string[]> = {
     "변경 사항이 자동 적용됩니다.",
   ],
   "Applying…": ["正在应用…", "正在套用…", "適用中…", "적용 중…"],
+  "Applying and waiting for router…": [
+    "正在应用并等待路由器确认…",
+    "正在套用並等待路由器確認…",
+    "適用してルーターの確認を待っています…",
+    "적용 후 라우터 확인 대기 중…",
+  ],
+  "Reconnecting to router…": [
+    "Wi-Fi 重启中，正在重新连接路由器…",
+    "Wi-Fi 重啟中，正在重新連線路由器…",
+    "Wi-Fi 再起動中、ルーターへ再接続しています…",
+    "Wi-Fi 재시작 중, 라우터에 다시 연결하는 중…",
+  ],
+  "Stop waiting": ["停止等待", "停止等待", "待機を中止", "대기 중지"],
+  "Stopped waiting. Read current state to check.": [
+    "已停止等待，请读取当前状态确认。",
+    "已停止等待，請讀取目前狀態確認。",
+    "待機を中止しました。現在の状態を確認してください。",
+    "대기를 중지했습니다. 현재 상태를 읽어 확인하세요.",
+  ],
+  "Wi-Fi master switch": [
+    "Wi-Fi 总开关",
+    "Wi-Fi 總開關",
+    "Wi-Fi マスタースイッチ",
+    "Wi-Fi 전체 스위치",
+  ],
+  "Turns both 2.4 GHz and 5 GHz wireless radios on or off together.": [
+    "同时开启或关闭 2.4 GHz 与 5 GHz 无线射频。",
+    "同時開啟或關閉 2.4 GHz 與 5 GHz 無線射頻。",
+    "2.4 GHz と 5 GHz の両方の無線を一括でオン／オフします。",
+    "2.4 GHz 및 5 GHz 무선을 함께 켜거나 끕니다.",
+  ],
   "Applied and verified": [
     "已生效并回读确认",
     "已生效並讀回確認",

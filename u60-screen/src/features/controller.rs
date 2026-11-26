@@ -12,6 +12,41 @@ struct Pending {
     key: Option<String>,
     request: Request,
     attempt: u8,
+    started_at: Instant,
+}
+impl Pending {
+    fn new(id: u64, key: Option<String>, request: Request, attempt: u8) -> Self {
+        Self {
+            id,
+            key,
+            request,
+            attempt,
+            started_at: Instant::now(),
+        }
+    }
+    fn deadline_secs(&self) -> u64 {
+        match self.request.path.as_str() {
+            "/api/update/check" | "/api/update/download" => 375,
+            "/api/proxy/enable"
+            | "/api/proxy/restart"
+            | "/api/proxy/reload"
+            | "/api/proxy/mihomo/enable"
+            | "/api/proxy/mihomo/restart"
+            | "/api/proxy/mihomo/reload" => 615,
+            "/api/proxy/disable" | "/api/proxy/mihomo/disable" => 135,
+            "/api/wifi/settings" | "/api/wifi/guest" => 105,
+            "/api/tailscale/setup" | "/api/tailscale/login-url" => 80,
+            "/api/wifi/settings/async" | "/api/wifi/guest/async" => 25,
+            "/api/wifi/apply" => 12,
+            _ => 45,
+        }
+    }
+}
+struct AsyncApply {
+    job_id: u64,
+    started_at: Instant,
+    next_poll: Instant,
+    status_path: &'static str,
 }
 pub struct Controller {
     pub id: String,
@@ -24,6 +59,9 @@ pub struct Controller {
     reads: Vec<Read>,
     queue: VecDeque<(Option<String>, Request)>,
     pending: Option<Pending>,
+    async_apply: Option<AsyncApply>,
+    silent_queue: VecDeque<Request>,
+    silent_pending: Option<u64>,
     incoming: Data,
     background: bool,
     live_keys: std::collections::BTreeSet<String>,
@@ -58,6 +96,9 @@ impl Default for Controller {
             reads: vec![],
             queue: VecDeque::new(),
             pending: None,
+            async_apply: None,
+            silent_queue: VecDeque::new(),
+            silent_pending: None,
             incoming: Data::new(),
             background: false,
             live_keys: Default::default(),
@@ -122,10 +163,28 @@ impl Controller {
         true
     }
     pub fn busy(&self) -> bool {
-        self.pending.is_some() || !self.queue.is_empty()
+        self.pending.is_some() || !self.queue.is_empty() || self.async_apply.is_some()
     }
     pub fn blocking(&self) -> bool {
         self.busy() && !self.background
+    }
+    pub fn can_stop_waiting(&self) -> bool {
+        self.async_apply.is_some()
+    }
+    pub fn stop_waiting(&mut self, agent: Option<&Agent>) {
+        if let Some(pending) = self.pending.take() {
+            if let Some(agent) = agent {
+                agent.cancel(pending.id);
+            }
+        }
+        self.async_apply = None;
+        self.queue.clear();
+        self.writes = 0;
+        self.expected.clear();
+        self.outcome = Some(crate::i18n::tr("已停止等待，正在读取当前状态…").into());
+        self.refresh();
+        self.notice = self.outcome.clone().unwrap_or_default();
+        self.revision += 1;
     }
     pub fn pause_background(&mut self) {
         self.telemetry.interrupt();
@@ -160,6 +219,9 @@ impl Controller {
         self.draft.clear();
         self.queue.clear();
         self.pending = None;
+        self.async_apply = None;
+        self.silent_queue.clear();
+        self.silent_pending = None;
         self.incoming.clear();
         self.background = false;
         self.confirmation = None;
@@ -198,6 +260,7 @@ impl Controller {
         }
         self.queue.clear();
         self.pending = None;
+        self.async_apply = None;
         self.incoming.clear();
         self.background = background && self.loaded.is_some();
         self.confirmation = None;
@@ -332,6 +395,14 @@ impl Controller {
         if self.resume {
             self.refresh();
         }
+        if self.silent_pending.is_none()
+            && let Some(request) = self.silent_queue.pop_front()
+        {
+            let id = IDS.fetch_add(1, Ordering::Relaxed);
+            if agent.call(id, request).is_ok() {
+                self.silent_pending = Some(id);
+            }
+        }
         if self.editing || self.page.dirty() || self.confirmation.is_some() {
             self.pause_background();
         }
@@ -343,28 +414,131 @@ impl Controller {
         {
             self.begin_reads(true);
         }
-        if self.pending.is_some() || Instant::now() < self.next_try {
+        if let Some(pending) = &self.pending {
+            if pending.started_at.elapsed() >= Duration::from_secs(pending.deadline_secs()) {
+                let id = pending.id;
+                agent.cancel(id);
+                self.receive(id, Err(Error::Unavailable));
+            }
+            return;
+        }
+        if let Some(apply) = &mut self.async_apply {
+            let elapsed = apply.started_at.elapsed().as_secs();
+            if elapsed >= 70 {
+                self.async_apply = None;
+                self.writes = 0;
+                self.outcome = Some(
+                    crate::i18n::tr("操作结果未确认。请刷新状态后再决定是否重试。").into(),
+                );
+                self.refresh();
+                self.notice = self.outcome.clone().unwrap_or_default();
+                self.revision += 1;
+                return;
+            }
+            if Instant::now() >= apply.next_poll {
+                apply.next_poll = Instant::now() + Duration::from_secs(1);
+                let path = apply.status_path;
+                self.notice = crate::i18n::format(
+                    "正在应用 Wi-Fi（已用 {0} 秒）…",
+                    &[format!("{}", elapsed.max(1))],
+                );
+                let id = IDS.fetch_add(1, Ordering::Relaxed);
+                let request = Request::get(path);
+                self.pending = Some(Pending::new(
+                    id,
+                    Some("__async_apply".into()),
+                    request.clone(),
+                    0,
+                ));
+                if let Err(error) = agent.call(id, request) {
+                    self.receive(id, Err(error));
+                }
+            }
+            return;
+        }
+        if Instant::now() < self.next_try {
             return;
         }
         if let Some((key, request)) = self.queue.pop_front() {
             let id = IDS.fetch_add(1, Ordering::Relaxed);
-            self.pending = Some(Pending {
-                id,
-                key,
-                request: request.clone(),
-                attempt: self.attempt,
-            });
+            self.pending = Some(Pending::new(id, key, request.clone(), self.attempt));
             if let Err(error) = agent.call(id, request) {
                 self.receive(id, Err(error));
             }
         }
     }
     pub fn receive(&mut self, id: u64, result: Result<Value, Error>) -> bool {
+        if self.silent_pending == Some(id) {
+            self.silent_pending = None;
+            return true;
+        }
         if self.pending.as_ref().is_none_or(|p| p.id != id) {
             return false;
         }
         let pending = self.pending.take().unwrap();
         if let Some(key) = pending.key {
+            if key == "__async_apply" {
+                let Some(apply) = self.async_apply.as_mut() else {
+                    return true;
+                };
+                let elapsed = apply.started_at.elapsed().as_secs();
+                match result {
+                    Ok(status) => {
+                        let state = status["state"].as_str().unwrap_or("");
+                        let job_matches = apply.job_id == 0
+                            || status["job_id"]
+                                .as_u64()
+                                .is_none_or(|jid| jid == 0 || jid == apply.job_id);
+                        if state == "verified" || (state == "idle" && status["job_id"].as_u64() == Some(0)) {
+                            self.async_apply = None;
+                            self.writes = 0;
+                            self.outcome =
+                                Some(crate::i18n::tr("请求已接受；请核对下方设备实际状态。").into());
+                            self.refresh();
+                            self.notice = crate::i18n::tr("请求已接受，正在读取实际结果…").into();
+                            self.revision += 1;
+                        } else if state == "failed" && job_matches {
+                            self.async_apply = None;
+                            if self.automatic {
+                                self.draft = self
+                                    .page
+                                    .fields
+                                    .iter()
+                                    .filter(|f| f.dirty())
+                                    .map(|f| (f.key.clone(), f.value.clone()))
+                                    .collect();
+                            }
+                            self.expected.clear();
+                            self.writes = 0;
+                            let detail = status["error"]
+                                .as_str()
+                                .filter(|s| !s.trim().is_empty())
+                                .map(|s| s.to_string())
+                                .unwrap_or_else(|| {
+                                    crate::i18n::tr("设备尚未确认修改，请核对实际状态。").into()
+                                });
+                            self.outcome = Some(detail);
+                            self.refresh();
+                            self.notice = self.outcome.clone().unwrap_or_default();
+                            self.revision += 1;
+                        } else {
+                            apply.next_poll = Instant::now() + Duration::from_secs(1);
+                            self.notice = crate::i18n::format(
+                                "正在应用 Wi-Fi（已用 {0} 秒）…",
+                                &[format!("{}", elapsed.max(1))],
+                            );
+                        }
+                    }
+                    Err(_) => {
+                        apply.next_poll = Instant::now() + Duration::from_secs(1);
+                        self.notice = crate::i18n::format(
+                            "正在应用 Wi-Fi（已用 {0} 秒）…",
+                            &[format!("{}", elapsed.max(1))],
+                        );
+                    }
+                }
+                return true;
+            }
             if let Some(guard) = self.guards.remove(&key) {
                 if result.as_ref().is_ok_and(|value| guard.matches(value)) {
                     return true;
@@ -404,6 +578,9 @@ impl Controller {
             match result {
                 Ok(value) => {
                     self.completed += 1;
+                    let is_async_applying = value["status"].as_str() == Some("applying")
+                        && value["verified"] == Value::Bool(false);
+                    let async_job_id = value["job_id"].as_u64().unwrap_or(0);
                     self.data.insert("last_result".into(), Ok(value));
                     if self.queue.is_empty() {
                         if self.automatic {
@@ -422,7 +599,6 @@ impl Controller {
                                 .map(|f| (f.key.clone(), f.value.clone()))
                                 .collect();
                         }
-                        self.writes = 0;
                         if self.keep_draft {
                             self.draft = self
                                 .page
@@ -432,10 +608,22 @@ impl Controller {
                                 .map(|f| (f.key.clone(), f.value.clone()))
                                 .collect();
                         }
-                        self.outcome =
-                            Some(crate::i18n::tr("请求已接受；请核对下方设备实际状态。").into());
-                        self.refresh();
-                        self.notice = crate::i18n::tr("请求已接受，正在读取实际结果…").into();
+                        if is_async_applying {
+                            self.async_apply = Some(AsyncApply {
+                                job_id: async_job_id,
+                                started_at: Instant::now(),
+                                next_poll: Instant::now() + Duration::from_millis(800),
+                                status_path: "/api/wifi/apply",
+                            });
+                            self.notice = crate::i18n::tr("正在应用 Wi-Fi，请稍候…").into();
+                        } else {
+                            self.writes = 0;
+                            self.outcome = Some(
+                                crate::i18n::tr("请求已接受；请核对下方设备实际状态。").into(),
+                            );
+                            self.refresh();
+                            self.notice = crate::i18n::tr("请求已接受，正在读取实际结果…").into();
+                        }
                     }
                 }
                 Err(error) => {
@@ -645,6 +833,28 @@ impl Controller {
         );
         self.data
             .insert("__selection".into(), Ok(Value::String(id.into())));
+        if self.id == "sms-inbox" && !id.starts_with("reply:") {
+            let mut marked = false;
+            for key in ["internal", "card"] {
+                if let Some(Ok(store)) = self.data.get_mut(key)
+                    && let Some(list) = store["messages"].as_array_mut()
+                {
+                    for msg in list {
+                        if super::text(&msg["id"]) == id && super::text(&msg["tag"]) == "1" {
+                            msg["tag"] = serde_json::json!(0);
+                            marked = true;
+                        }
+                    }
+                }
+            }
+            if marked {
+                self.silent_queue.push_back(Request::json(
+                    Method::POST,
+                    "/api/sms/read",
+                    serde_json::json!({"id": format!("{id};"), "tag": 0}),
+                ));
+            }
+        }
         self.page = super::page(&self.id, &self.data);
         self.confirmation = None;
         self.revision += 1;
@@ -749,12 +959,7 @@ impl Controller {
     pub fn reply_fixture(&mut self, result: Result<Value, Error>) {
         let (key, request) = self.queue.pop_front().expect("queued read");
         let id = IDS.fetch_add(1, Ordering::Relaxed);
-        self.pending = Some(Pending {
-            id,
-            key,
-            request,
-            attempt: 0,
-        });
+        self.pending = Some(Pending::new(id, key, request, 0));
         assert!(self.receive(id, result));
     }
     #[cfg(test)]
@@ -807,12 +1012,7 @@ mod tests {
                     }
                     actual
                 };
-                c.pending = Some(Pending {
-                    id: sequence,
-                    key,
-                    request,
-                    attempt: 0,
-                });
+                c.pending = Some(Pending::new(sequence, key, request, 0));
                 c.receive(sequence, Ok(value));
                 assert!(sequence < 710, "writes must not be replayed");
             }
@@ -825,25 +1025,32 @@ mod tests {
         }
         let mut c = Controller::default();
         c.seed_data(
-            "proxy-service",
+            "lan",
             Data::from([(
-                "status".into(),
-                Ok(json!({"running":true,"mode":"rule","capture":"local"})),
+                "settings".into(),
+                Ok(json!({
+                    "lan_ipaddr": "192.168.0.1",
+                    "lan_netmask": "255.255.255.0",
+                    "dhcp_enable": "1",
+                    "dhcp_start": "192.168.0.100",
+                    "dhcp_end": "192.168.0.200",
+                    "dhcp_lease_time": "24h"
+                })),
             )]),
         );
         let i = c
             .page
             .fields
             .iter()
-            .position(|f| f.key == "capture")
+            .position(|f| f.key == "lan_ipaddr")
             .unwrap();
-        c.edit(i, "hotspot".into()).unwrap();
+        c.edit(i, "192.168.0.2".into()).unwrap();
         c.auto_apply().unwrap();
         assert!(c.confirmation.is_some());
         assert!(c.queue.is_empty());
         c.cancel_confirmation();
         assert!(!c.page.dirty());
-        assert_eq!(c.page.field("capture").unwrap().value, "local");
+        assert_eq!(c.page.field("lan_ipaddr").unwrap().value, "192.168.0.1");
         assert!(c.queue.is_empty());
     }
     #[test]
@@ -939,12 +1146,7 @@ mod tests {
         let mut c = inbox();
         c.poll_fixture();
         let (key, request) = c.queue.pop_front().unwrap();
-        c.pending = Some(Pending {
-            id: 950,
-            key,
-            request,
-            attempt: 0,
-        });
+        c.pending = Some(Pending::new(950, key, request, 0));
         c.select("1").unwrap();
         assert!(!c.busy());
         assert!(c.next_poll.is_none());
@@ -1076,21 +1278,11 @@ mod tests {
             c.confirm("").unwrap();
             let (key, request) = c.queue.pop_front().unwrap();
             assert!(key.is_some());
-            c.pending = Some(Pending {
-                id: 910,
-                key,
-                request,
-                attempt: 0,
-            });
+            c.pending = Some(Pending::new(910, key, request, 0));
             c.receive(910, Ok(control));
             let (key, request) = c.queue.pop_front().unwrap();
             assert!(key.is_none());
-            c.pending = Some(Pending {
-                id: 911,
-                key,
-                request,
-                attempt: 0,
-            });
+            c.pending = Some(Pending::new(911, key, request, 0));
             c.receive(911, Ok(json!({"charging_stopped":!original})));
             assert!(c.blocking(), "wait for authoritative readback");
             assert!(c.prepare(0).is_err(), "no second write during readback");
@@ -1108,12 +1300,7 @@ mod tests {
                     }
                     _ => json!({}),
                 };
-                c.pending = Some(Pending {
-                    id: 912,
-                    key,
-                    request,
-                    attempt: 0,
-                });
+                c.pending = Some(Pending::new(912, key, request, 0));
                 c.receive(912, Ok(result));
             }
             assert_eq!(
@@ -1140,12 +1327,7 @@ mod tests {
         c.confirm("").unwrap();
         let (key, request) = c.queue.pop_front().unwrap();
         assert!(key.as_deref().unwrap().starts_with("__guard/"));
-        c.pending = Some(Pending {
-            id: 899,
-            key,
-            request,
-            attempt: 0,
-        });
+        c.pending = Some(Pending::new(899, key, request, 0));
         c.receive(899, Ok(serde_json::json!({"lan_ipaddr":"10.10.0.1"})));
         assert_eq!(c.writes, 0);
         assert!(c.queue.iter().all(|(key, _)| key.is_some()));
@@ -1164,12 +1346,7 @@ mod tests {
         assert!(c.confirm("").is_err());
         let (key, request) = c.queue.pop_front().unwrap();
         assert!(key.is_none());
-        c.pending = Some(Pending {
-            id: 900,
-            key,
-            request,
-            attempt: 0,
-        });
+        c.pending = Some(Pending::new(900, key, request, 0));
         c.receive(900, Err(Error::Busy(3)));
         assert!(c.notice.contains("结果"));
         assert!(
@@ -1199,14 +1376,78 @@ mod tests {
         );
         c.open("fast-boot");
         let (key, request) = c.queue.pop_front().unwrap();
-        c.pending = Some(Pending {
-            id: 902,
-            key,
-            request,
-            attempt: 0,
-        });
+        c.pending = Some(Pending::new(902, key, request, 0));
         assert!(!c.receive(901, Ok(json!({"fast_boot":"1"}))));
         assert!(c.receive(902, Ok(json!({"fast_boot":"0"}))));
         assert_eq!(c.page.fields[0].value, "0");
+    }
+    #[test]
+    fn async_wifi_apply_polls_until_verified_and_supports_stop_waiting() {
+        let mut c = Controller::default();
+        c.seed(
+            "wifi2",
+            json!({
+                "wifi_onoff": "1",
+                "radio2_disabled": "0",
+                "wifi6_switch": "1",
+                "ssid_2g": "Example",
+                "encryption_2g": "sae-mixed",
+                "key_2g": "test-only-wifi",
+                "channel_2g": "0",
+                "htmode_2g": "EHT40",
+                "txpower_2g": "100",
+                "hidden_2g": "0"
+            }),
+        );
+        let idx = c.page.fields.iter().position(|f| f.key == "txpower_2g").unwrap();
+        c.edit(idx, "80".into()).unwrap();
+        c.auto_apply().unwrap();
+        assert!(
+            c.confirmation.is_none(),
+            "local Wi-Fi settings apply directly without an interruption modal"
+        );
+        let (key, req) = c.queue.pop_front().unwrap();
+        assert!(key.is_none());
+        assert_eq!(req.path, "/api/wifi/settings/async");
+        c.pending = Some(Pending::new(1001, key, req, 0));
+        c.receive(1001, Ok(json!({"status": "applying", "job_id": 7, "verified": false})));
+        assert!(c.blocking());
+        assert!(c.can_stop_waiting());
+        // Simulate polling /api/wifi/apply: first applying, then verified.
+        c.pending = Some(Pending::new(1002, Some("__async_apply".into()), Request::get("/api/wifi/apply"), 0));
+        c.receive(1002, Ok(json!({"job_id": 7, "state": "applying", "elapsed_ms": 2000, "error": null})));
+        assert!(c.can_stop_waiting());
+        c.pending = Some(Pending::new(1003, Some("__async_apply".into()), Request::get("/api/wifi/apply"), 0));
+        c.receive(1003, Ok(json!({"job_id": 7, "state": "verified", "elapsed_ms": 9000, "error": null})));
+        assert!(!c.can_stop_waiting());
+        assert!(!c.queue.is_empty(), "verified async apply must trigger readback");
+        // Verify stop_waiting cleanly exits waiting and refreshes.
+        c.async_apply = Some(AsyncApply {
+            job_id: 8,
+            started_at: Instant::now(),
+            next_poll: Instant::now(),
+            status_path: "/api/wifi/apply",
+        });
+        c.stop_waiting(None);
+        assert!(!c.can_stop_waiting());
+        assert!(c.notice.contains("停止等待"));
+    }
+    #[test]
+    fn opening_unread_sms_marks_it_read_immediately_without_blocking() {
+        let mut c = inbox();
+        assert_eq!(c.page.items[0].title, "● +15555550100");
+        c.select("1").unwrap();
+        assert!(!c.busy(), "auto-mark-read must not block reading");
+        assert_eq!(c.silent_queue.len(), 1);
+        assert_eq!(c.silent_queue[0].path, "/api/sms/read");
+        assert_eq!(
+            c.silent_queue[0].body,
+            Some(json!({"id": "1;", "tag": 0}))
+        );
+        // Optimistic tag update turns the manual action into "unread" (and non-confirming).
+        assert_eq!(c.page.actions[0].id, "unread");
+        assert!(!c.page.actions[0].confirm);
+        assert!(c.back());
+        assert_eq!(c.page.items[0].title, "+15555550100");
     }
 }

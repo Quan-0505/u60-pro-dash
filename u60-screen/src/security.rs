@@ -14,7 +14,7 @@ use zeroize::{Zeroize, Zeroizing};
 
 const MEMORY: u32 = 19 * 1024;
 const ITERATIONS: u32 = 2;
-const HOLD: Duration = Duration::from_millis(1000);
+const HOLD: Duration = Duration::from_millis(500);
 
 #[derive(Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]

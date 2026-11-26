@@ -1,6 +1,67 @@
-use std::process::Command;
+use std::io::Read;
+use std::process::{Command, Output, Stdio};
+use std::time::{Duration, Instant};
 
 use serde_json::Value;
+
+const UBUS_CALL_TIMEOUT: Duration = Duration::from_secs(30);
+const UCI_TIMEOUT: Duration = Duration::from_secs(15);
+
+/// Run a short-lived router CLI command with a hard wall-clock deadline so a
+/// stuck firmware lock or hung daemon can never pin a gate worker forever.
+fn output_with_timeout(cmd: &mut Command, timeout: Duration, label: &str) -> Result<Output, String> {
+    let mut child = cmd
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .map_err(|e| format!("{label} exec: {e}"))?;
+    let mut stdout_pipe = child.stdout.take();
+    let mut stderr_pipe = child.stderr.take();
+    let out_reader = std::thread::spawn(move || {
+        let mut buf = Vec::new();
+        if let Some(mut p) = stdout_pipe.take() {
+            let _ = p.read_to_end(&mut buf);
+        }
+        buf
+    });
+    let err_reader = std::thread::spawn(move || {
+        let mut buf = Vec::new();
+        if let Some(mut p) = stderr_pipe.take() {
+            let _ = p.read_to_end(&mut buf);
+        }
+        buf
+    });
+    let deadline = Instant::now() + timeout;
+    let status = loop {
+        match child.try_wait() {
+            Ok(Some(status)) => break status,
+            Ok(None) => {
+                if Instant::now() >= deadline {
+                    let _ = child.kill();
+                    let _ = child.wait();
+                    let _ = out_reader.join();
+                    let _ = err_reader.join();
+                    return Err(format!("{label} timed out after {}s", timeout.as_secs()));
+                }
+                std::thread::sleep(Duration::from_millis(15));
+            }
+            Err(e) => {
+                let _ = child.kill();
+                let _ = child.wait();
+                let _ = out_reader.join();
+                let _ = err_reader.join();
+                return Err(format!("{label} wait: {e}"));
+            }
+        }
+    };
+    let stdout = out_reader.join().unwrap_or_default();
+    let stderr = err_reader.join().unwrap_or_default();
+    Ok(Output {
+        status,
+        stdout,
+        stderr,
+    })
+}
 
 /// Call `ubus call <object> <method> [<params>]` and parse JSON output.
 pub fn call(object: &str, method: &str, params: Option<&str>) -> Result<Value, String> {
@@ -10,7 +71,7 @@ pub fn call(object: &str, method: &str, params: Option<&str>) -> Result<Value, S
     if let Some(p) = params {
         cmd.arg(p);
     }
-    let output = cmd.output().map_err(|e| format!("ubus exec: {e}"))?;
+    let output = output_with_timeout(&mut cmd, UBUS_CALL_TIMEOUT, "ubus")?;
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);
         let stderr = match stderr.find("\nUsage:") {
@@ -33,11 +94,20 @@ pub fn call(object: &str, method: &str, params: Option<&str>) -> Result<Value, S
 /// A deadline-limited call for a bounded handover transaction.
 pub(crate) fn call_bounded(object: &str, method: &str, params: Option<&str>, seconds: u8) -> Result<Value, String> {
     crate::httpd::gate::debug_assert_may_block();
+    let secs = seconds.max(1);
     let mut cmd = Command::new("ubus");
-    cmd.args(["-t", &seconds.max(1).to_string(), "call", object, method]);
+    cmd.args(["-t", &secs.to_string(), "call", object, method]);
     if let Some(params) = params { cmd.arg(params); }
-    let output = cmd.output().map_err(|e| format!("ubus exec: {e}"))?;
-    if !output.status.success() { return Err(format!("bounded ubus {object} {method} failed")); }
+    let output = output_with_timeout(&mut cmd, Duration::from_secs(u64::from(secs) + 3), "ubus")?;
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        let detail = stderr.trim();
+        return Err(if detail.is_empty() {
+            format!("bounded ubus {object} {method} failed")
+        } else {
+            format!("bounded ubus {object} {method} failed: {detail}")
+        });
+    }
     let text = String::from_utf8_lossy(&output.stdout);
     if text.trim().is_empty() { Ok(Value::Null) }
     else { serde_json::from_str(text.trim()).map_err(|e| format!("ubus JSON parse: {e}")) }
@@ -68,10 +138,9 @@ fn send_command(event: &str, payload: &Value) -> Command {
 /// Run `uci get <key>` and return the value.
 pub fn uci_get(key: &str) -> Result<String, String> {
     crate::httpd::gate::debug_assert_may_block();
-    let output = Command::new("uci")
-        .args(["get", key])
-        .output()
-        .map_err(|e| format!("uci exec: {e}"))?;
+    let mut cmd = Command::new("uci");
+    cmd.args(["get", key]);
+    let output = output_with_timeout(&mut cmd, UCI_TIMEOUT, "uci")?;
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);
         return Err(format!("uci get {key}: {stderr}"));
@@ -83,10 +152,9 @@ pub fn uci_get(key: &str) -> Result<String, String> {
 /// `config.section.option='value'` lines.
 pub fn uci_show(target: &str) -> Result<String, String> {
     crate::httpd::gate::debug_assert_may_block();
-    let output = Command::new("uci")
-        .args(["-q", "show", target])
-        .output()
-        .map_err(|e| format!("uci exec: {e}"))?;
+    let mut cmd = Command::new("uci");
+    cmd.args(["-q", "show", target]);
+    let output = output_with_timeout(&mut cmd, UCI_TIMEOUT, "uci")?;
     if !output.status.success() {
         return Err(format!("uci show {target}: {}", output.status));
     }
@@ -172,10 +240,9 @@ mod uci_show_tests {
 
 pub fn uci_set_no_commit(key: &str, value: &str) -> Result<(), String> {
     crate::httpd::gate::debug_assert_may_block();
-    let set_out = Command::new("uci")
-        .args(["set", &format!("{key}={value}")])
-        .output()
-        .map_err(|e| format!("uci set: {e}"))?;
+    let mut cmd = Command::new("uci");
+    cmd.args(["set", &format!("{key}={value}")]);
+    let set_out = output_with_timeout(&mut cmd, UCI_TIMEOUT, "uci set")?;
     if !set_out.status.success() {
         return Err(format!(
             "uci set {key}: {}",
@@ -188,10 +255,9 @@ pub fn uci_set_no_commit(key: &str, value: &str) -> Result<(), String> {
 /// Run `uci commit <config>`.
 pub fn uci_commit(config: &str) -> Result<(), String> {
     crate::httpd::gate::debug_assert_may_block();
-    let commit_out = Command::new("uci")
-        .args(["commit", config])
-        .output()
-        .map_err(|e| format!("uci commit: {e}"))?;
+    let mut cmd = Command::new("uci");
+    cmd.args(["commit", config]);
+    let commit_out = output_with_timeout(&mut cmd, UCI_TIMEOUT, "uci commit")?;
     if !commit_out.status.success() {
         return Err(format!(
             "uci commit {config}: {}",

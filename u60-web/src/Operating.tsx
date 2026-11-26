@@ -91,7 +91,7 @@ function useOperatingState() {
       setError(new Error(reading.error));
     }
   }, [reading]);
-  const available = !!data && !error && live.state === "live";
+  const available = !!data && !error && live.state !== "offline";
   const change = async (control: Control, value: boolean | string) => {
     if (!available || mutation.busy || inFlight.current) return;
     if (

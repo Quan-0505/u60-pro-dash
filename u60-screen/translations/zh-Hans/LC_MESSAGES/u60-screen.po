@@ -20,6 +20,12 @@ msgstr "U60 · 原生屏幕预览"
 msgid "Wi-Fi 可用"
 msgstr "Wi-Fi 可用"
 
+msgid "Wi-Fi 总开关"
+msgstr "Wi-Fi 总开关"
+
+msgid "Wi-Fi 设置"
+msgstr "Wi-Fi 设置"
+
 msgid "Wi-Fi 连接卡片"
 msgstr "Wi-Fi 连接卡片"
 
@@ -35,6 +41,12 @@ msgstr "↓ 下载 / Mbps"
 msgid "−2 分钟"
 msgstr "−2 分钟"
 
+msgid "今日流量 {0} · 本月流量 {1}"
+msgstr "今日流量 {0} · 本月流量 {1}"
+
+msgid "从下方向上滑动解锁"
+msgstr "从下方向上滑动解锁"
+
 msgid "优先响应与处理能力，温度和功耗可能上升。"
 msgstr "优先响应与处理能力，温度和功耗可能上升。"
 
@@ -46,6 +58,9 @@ msgstr "信号详情"
 
 msgid "修改解锁密码"
 msgstr "修改解锁密码"
+
+msgid "停止等待"
+msgstr "停止等待"
 
 msgid "关闭密码解锁"
 msgstr "关闭密码解锁"
@@ -92,8 +107,14 @@ msgstr "密码解锁"
 msgid "屏幕亮度  "
 msgstr "屏幕亮度  "
 
+msgid "已关闭 · 无线热点已停用"
+msgstr "已关闭 · 无线热点已停用"
+
 msgid "已开启 · 6–12 位数字密码"
 msgstr "已开启 · 6–12 位数字密码"
+
+msgid "已开启 · 控制 2.4G / 5G 热点"
+msgstr "已开启 · 控制 2.4G / 5G 热点"
 
 msgid "已联网"
 msgstr "已联网"
@@ -176,14 +197,14 @@ msgstr "本页最近 2 分钟的观察记录；断线或暂停处留空。"
 msgid "机身屏幕使用本机后台账号连接。也可以输入后台密码重新登录。"
 msgstr "机身屏幕使用本机后台账号连接。也可以输入后台密码重新登录。"
 
-msgid "松开继续"
-msgstr "松开继续"
-
 msgid "极速：不区分应用优先级，按需使用带宽。"
 msgstr "极速：不区分应用优先级，按需使用带宽。"
 
 msgid "查看设置与操作需要密码"
 msgstr "查看设置与操作需要密码"
+
+msgid "正在处理，请稍候…"
+msgstr "正在处理，请稍候…"
 
 msgid "正在积累趋势"
 msgstr "正在积累趋势"
@@ -214,6 +235,9 @@ msgstr "演示"
 
 msgid "演示运营商"
 msgstr "演示运营商"
+
+msgid "点按数值可直接输入"
+msgstr "点按数值可直接输入"
 
 msgid "熄屏"
 msgstr "熄屏"
@@ -307,9 +331,6 @@ msgstr "选择即应用"
 
 msgid "重新连接"
 msgstr "重新连接"
-
-msgid "长按 1 秒解锁"
-msgstr "长按 1 秒解锁"
 
 msgid "降低处理频率，吞吐能力可能下降。"
 msgstr "降低处理频率，吞吐能力可能下降。"

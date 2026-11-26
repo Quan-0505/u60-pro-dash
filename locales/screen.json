@@ -125,6 +125,13 @@
     "ja": "12時間",
     "ko": "12시간"
   },
+  "15 分钟": {
+    "zh-Hans": "15 分钟",
+    "zh-Hant": "15 分鐘",
+    "en": "15 min",
+    "ja": "15 分",
+    "ko": "15분"
+  },
   "15 秒": {
     "zh-Hans": "15 秒",
     "en": "15 seconds",
@@ -159,6 +166,13 @@
     "ja": "2秒",
     "ko": "2초",
     "zh-Hant": "2 秒"
+  },
+  "2.4 GHz 开关": {
+    "zh-Hans": "2.4 GHz 开关",
+    "zh-Hant": "2.4 GHz 開關",
+    "en": "2.4 GHz radio",
+    "ja": "2.4 GHz 無線",
+    "ko": "2.4 GHz 무선"
   },
   "2.4 GHz 热点": {
     "en": "2.4 GHz hotspot",
@@ -243,6 +257,13 @@
     "zh-Hant": "4G 頻段偏好",
     "ja": "4G バンド設定",
     "ko": "4G 주파수 설정"
+  },
+  "5 GHz 开关": {
+    "zh-Hans": "5 GHz 开关",
+    "zh-Hant": "5 GHz 開關",
+    "en": "5 GHz radio",
+    "ja": "5 GHz 無線",
+    "ko": "5 GHz 무선"
   },
   "5 GHz 热点": {
     "en": "5 GHz hotspot",
@@ -1133,12 +1154,26 @@
     "ja": "Wi-Fi マスタースイッチ",
     "ko": "와이파이 마스터 스위치"
   },
+  "Wi-Fi 总开关与制式": {
+    "zh-Hans": "Wi-Fi 总开关与制式",
+    "zh-Hant": "Wi-Fi 總開關與制式",
+    "en": "Wi-Fi switch & standard",
+    "ja": "Wi-Fi スイッチと規格",
+    "ko": "Wi-Fi 스위치 및 규격"
+  },
   "Wi-Fi 热点设备": {
     "en": "Wi-Fi hotspot clients",
     "zh-Hans": "Wi-Fi 热点设备",
     "zh-Hant": "Wi-Fi 熱點裝置",
     "ja": "Wi-Fi ホットスポットクライアント",
     "ko": "와이파이 핫스팟 클라이언트"
+  },
+  "Wi-Fi 设置": {
+    "zh-Hans": "Wi-Fi 设置",
+    "zh-Hant": "Wi-Fi 設定",
+    "en": "Wi-Fi",
+    "ja": "Wi-Fi 設定",
+    "ko": "Wi-Fi 설정"
   },
   "Wi-Fi 连接卡片": {
     "zh-Hans": "Wi-Fi 连接卡片",
@@ -2526,6 +2561,13 @@
     "ja": "ストップスピードテスト",
     "ko": "스톱 속도 테스트"
   },
+  "停止等待": {
+    "zh-Hans": "停止等待",
+    "zh-Hant": "停止等待",
+    "en": "Stop waiting",
+    "ja": "待機を中止",
+    "ko": "대기 중지"
+  },
   "停止隧道": {
     "en": "Stop tunnel",
     "zh-Hans": "停止隧道",
@@ -2771,6 +2813,13 @@
     "ja": "ゲストのWi-Fiを無効にする",
     "ko": "손님 Wi-Fi를 비활성화"
   },
+  "关闭（常驻）": {
+    "zh-Hans": "关闭（常驻）",
+    "zh-Hant": "關閉（常駐）",
+    "en": "Off (always on)",
+    "ja": "オフ（常時稼働）",
+    "ko": "끄기 (항상 켜짐)"
+  },
   "兼顾响应、温度与功耗。": {
     "en": "Balance response time, temperature and power use.",
     "zh-Hans": "兼顾响应、温度与功耗。",
@@ -2889,6 +2938,13 @@
     "zh-Hant": "分別讀取裝置與 SIM 最近 500 條，按簡訊 ID 去重。點開不會自動標記已讀。",
     "ja": "テキスト・メッセージ ID で読み取れるデバイスと SIM の最近の500 件を別々に読み取れる. 自動マークが読まれていない.",
     "ko": "SIM와 최근 500개의 기사를 각각 읽고, 문자 ID로 중화하십시오. 자율표표가 읽혀지지 않습니다."
+  },
+  "分别读取设备与 SIM 最近 500 条，按短信 ID 去重。点开未读短信自动标记已读。": {
+    "zh-Hans": "分别读取设备与 SIM 最近 500 条，按短信 ID 去重。点开未读短信自动标记已读。",
+    "zh-Hant": "分別讀取裝置與 SIM 最近 500 則，依簡訊 ID 去重。點開未讀簡訊自動標記已讀。",
+    "en": "Reads the latest 500 messages from device and SIM, deduplicated by ID. Opening an unread message marks it read.",
+    "ja": "端末と SIM から最新 500 件を ID 重複排除して取得します。未読を開くと自動で既読になります。",
+    "ko": "기기와 SIM의 최근 500건을 ID 기준으로 중복 제거해 읽습니다. 읽지 않은 메시지를 열면 자동으로 읽음 처리됩니다."
   },
   "切换 SIM 身份并重新注册网络，蜂窝数据、通话与短信会暂时中断。新套餐可能要求不同 APN 或漫游设置。": {
     "en": "Switching the SIM identity and re-registering the network, cellular data, calls and text messages will be temporarily interrupted. New packages may require different APN or roaming settings.",
@@ -3582,6 +3638,13 @@
     "zh-Hant": "號碼或關鍵詞",
     "ja": "番号またはキーワード",
     "ko": "숫자 또는 키워드"
+  },
+  "同时开启或关闭 2.4 GHz 与 5 GHz 访客网络。": {
+    "zh-Hans": "同时开启或关闭 2.4 GHz 与 5 GHz 访客网络。",
+    "zh-Hant": "同時開啟或關閉 2.4 GHz 與 5 GHz 訪客網路。",
+    "en": "Turns both 2.4 GHz and 5 GHz guest networks on or off together.",
+    "ja": "2.4 GHz と 5 GHz のゲストネットワークを同時に切り替えます。",
+    "ko": "2.4 GHz 및 5 GHz 게스트 네트워크를 함께 켜거나 끕니다."
   },
   "名称": {
     "en": "Name",
@@ -4829,6 +4892,13 @@
     "ja": "停止中",
     "ko": "중지됨"
   },
+  "已停止等待，正在读取当前状态…": {
+    "zh-Hans": "已停止等待，正在读取当前状态…",
+    "zh-Hant": "已停止等待，正在讀取目前狀態…",
+    "en": "Stopped waiting. Reading current status…",
+    "ja": "待機を中止しました。現在の状態を確認中…",
+    "ko": "대기를 중지했습니다. 현재 상태를 읽는 중…"
+  },
   "已停用": {
     "zh-Hans": "已停用",
     "en": "Disabled",
@@ -4842,6 +4912,20 @@
     "zh-Hant": "已充滿",
     "ja": "充電完了",
     "ko": "충전 완료"
+  },
+  "已关闭": {
+    "zh-Hans": "已关闭",
+    "zh-Hant": "已關閉",
+    "en": "Off",
+    "ja": "オフ",
+    "ko": "꺼짐"
+  },
+  "已关闭 · 无线热点已停用": {
+    "zh-Hans": "已关闭 · 无线热点已停用",
+    "zh-Hant": "已關閉 · 無線熱點已停用",
+    "en": "Off · Wireless hotspots disabled",
+    "ja": "オフ・無線ホットスポット停止中",
+    "ko": "꺼짐 · 무선 핫스팟 비활성화됨"
   },
   "已启用": {
     "en": "Active",
@@ -4891,6 +4975,13 @@
     "zh-Hant": "已開啟 · 6–12 位數字密碼",
     "ja": "有効 · 6～12桁の PIN",
     "ko": "활성화됨 · 숫자 6~12자리 PIN"
+  },
+  "已开启 · 控制 2.4G / 5G 热点": {
+    "zh-Hans": "已开启 · 控制 2.4G / 5G 热点",
+    "zh-Hant": "已開啟 · 控制 2.4G / 5G 熱點",
+    "en": "On · Controls 2.4G / 5G hotspots",
+    "ja": "オン・2.4G / 5G ホットスポットを制御",
+    "ko": "켜짐 · 2.4G / 5G 핫스팟 제어"
   },
   "已恢复": {
     "zh-Hans": "已恢复",
@@ -5591,6 +5682,13 @@
     "zh-Hant": "效能模式",
     "ja": "パフォーマンスモード",
     "ko": "성능 모드"
+  },
+  "总开关与 Wi-Fi 7 同时作用于 2.4 GHz 和 5 GHz 热点。各频段名称、密码和信道请在对应热点页设置。": {
+    "zh-Hans": "总开关与 Wi-Fi 7 同时作用于 2.4 GHz 和 5 GHz 热点。各频段名称、密码和信道请在对应热点页设置。",
+    "zh-Hant": "總開關與 Wi-Fi 7 同時作用於 2.4 GHz 和 5 GHz 熱點。各頻段名稱、密碼與頻道請在對應熱點頁設定。",
+    "en": "Applies to both 2.4 GHz and 5 GHz bands. Edit SSID, password, and channel in each band page.",
+    "ja": "2.4 GHz と 5 GHz の両方に適用されます。SSID・パスワード・チャンネルは各帯域ページで設定してください。",
+    "ko": "2.4 GHz 및 5 GHz 대역 모두에 적용됩니다. SSID, 비밀번호, 채널은 각 대역 페이지에서 설정하세요."
   },
   "恢复充电回差 %": {
     "en": "Resume charging below limit by %",
@@ -6460,6 +6558,13 @@
     "ja": "路線は読めない",
     "ko": "경로를 읽을 수 없었어요"
   },
+  "无设备自动暂停": {
+    "zh-Hans": "无设备自动暂停",
+    "zh-Hant": "無裝置自動暫停",
+    "en": "Auto-pause when idle",
+    "ja": "未接続時に自動停止",
+    "ko": "기기 미연결 시 자동 일시정지"
+  },
   "无需密码": {
     "zh-Hans": "无需密码",
     "zh-Hant": "無需密碼",
@@ -7146,6 +7251,13 @@
     "ja": "指を離して続行",
     "ko": "손을 떼면 계속"
   },
+  "松开解锁": {
+    "zh-Hans": "松开解锁",
+    "zh-Hant": "放開解鎖",
+    "en": "Release",
+    "ja": "離して解除",
+    "ko": "놓아서 해제"
+  },
   "极速": {
     "en": "Top speed",
     "zh-Hans": "极速",
@@ -7383,6 +7495,27 @@
     "zh-Hant": "正在處理請求，請稍後。 ",
     "ja": "リクエストを処理中です。お待ちください。 ",
     "ko": "요청을 처리 중입니다. 잠시 기다려 주세요. "
+  },
+  "正在处理，请稍候…": {
+    "zh-Hans": "正在处理，请稍候…",
+    "zh-Hant": "正在處理，請稍候…",
+    "en": "Working…",
+    "ja": "処理中…",
+    "ko": "처리 중…"
+  },
+  "正在应用 Wi-Fi（已用 {0} 秒）…": {
+    "zh-Hans": "正在应用 Wi-Fi（已用 {0} 秒）…",
+    "zh-Hant": "正在套用 Wi-Fi（已用 {0} 秒）…",
+    "en": "Applying Wi-Fi ({0}s)…",
+    "ja": "Wi-Fi を適用中（{0} 秒）…",
+    "ko": "Wi-Fi 적용 중 ({0}초)…"
+  },
+  "正在应用 Wi-Fi，请稍候…": {
+    "zh-Hans": "正在应用 Wi-Fi，请稍候…",
+    "zh-Hant": "正在套用 Wi-Fi，請稍候…",
+    "en": "Applying Wi-Fi settings…",
+    "ja": "Wi-Fi 設定を適用しています…",
+    "ko": "Wi-Fi 설정을 적용하는 중…"
   },
   "正在应用…": {
     "en": "Applying…",
@@ -8217,6 +8350,13 @@
     "ja": "設定をクリックして確認,改名,有効または削除します. 新しい設定をダウンロードするには\",ダウンロード eSIM\"を入力してください. オペレーターがバックタウンから自動再テストを行います.",
     "ko": "확인, 이름 변경, 활성화 또는 삭제을 클릭하십시오. 새로운 설정을 다운로드하려면 \"eSIM 다운로드\"에 들어가십시오. 이동통신사업자는 백업에서 자동으로 재시험을 실시합니다."
   },
+  "点按数值可直接输入": {
+    "zh-Hans": "点按数值可直接输入",
+    "zh-Hant": "點按數值可直接輸入",
+    "en": "Tap value to type",
+    "ja": "数値をタップして入力",
+    "ko": "값을 눌러 직접 입력"
+  },
   "点按查看和删除": {
     "en": "Tap to view or delete",
     "zh-Hans": "点按查看和删除",
@@ -9015,6 +9155,13 @@
     "ja": "怠惰で寝る",
     "ko": "비활성일 때 잠자리"
   },
+  "空闲暂停（无客户端）": {
+    "zh-Hans": "空闲暂停（无客户端）",
+    "zh-Hant": "閒置暫停（無用戶端）",
+    "en": "Idle paused (no clients)",
+    "ja": "待機停止中（クライアントなし）",
+    "ko": "유휴 일시정지 (연결된 기기 없음)"
+  },
   "立即向本页填写的目的地发送一条测试消息；无需先保存，短信目的地可能收费。": {
     "en": "A test message is sent immediately to the destination filled in on this page; no savings are required, and text messages may be charged to the destination.",
     "zh-Hans": "立即向本页填写的目的地发送一条测试消息；无需先保存，短信目的地可能收费。",
@@ -9266,6 +9413,13 @@
     "zh-Hant": "給訪客提供單獨的 Wi-Fi。",
     "ja": "訪問者に個別の Wi-Fi を提供します.",
     "ko": "방문객에게 개별 Wi-Fi를 제공합니다."
+  },
+  "统一控制无线热点总开关与 Wi-Fi 7。": {
+    "zh-Hans": "统一控制无线热点总开关与 Wi-Fi 7。",
+    "zh-Hant": "統一控制無線熱點總開關與 Wi-Fi 7。",
+    "en": "Master switch and Wi-Fi 7 standard for both bands.",
+    "ja": "両帯域の Wi-Fi スイッチと Wi-Fi 7 規格を管理します。",
+    "ko": "양 대역의 Wi-Fi 마스터 스위치와 Wi-Fi 7 규격을 관리합니다."
   },
   "统计可能与运营商计费存在差异。": {
     "en": "Statistics may differ from operator billing.",
@@ -11725,9 +11879,9 @@
     "ko": "1초간 누른 후 손 떼기"
   },
   "长按解锁": {
-    "en": "Hold to unlock",
     "zh-Hans": "长按解锁",
     "zh-Hant": "長按解鎖",
+    "en": "Hold to unlock",
     "ja": "長押しで解除",
     "ko": "길게 눌러 잠금 해제"
   },
@@ -12241,5 +12395,19 @@
     "en": "This Mihomo instance is managed by UFI. This page is read-only; use its existing dashboard for configuration and proxy groups.",
     "ja": "この Mihomo は UFI が管理しています。この画面は読み取り専用です。設定とプロキシグループは既存の管理画面を使用してください。",
     "ko": "이 Mihomo는 UFI가 관리합니다. 이 화면은 읽기 전용이며 설정과 프록시 그룹은 기존 관리 페이지에서 변경하세요."
+  },
+  "今日流量 {0} · 本月流量 {1}": {
+    "zh-Hans": "今日流量 {0} · 本月流量 {1}",
+    "zh-Hant": "今日流量 {0} · 本月流量 {1}",
+    "en": "Today {0} · This month {1}",
+    "ja": "本日 {0} · 今月 {1}",
+    "ko": "오늘 {0} · 이번 달 {1}"
+  },
+  "从下方向上滑动解锁": {
+    "zh-Hans": "从下方向上滑动解锁",
+    "zh-Hant": "由下向上滑動解鎖",
+    "en": "Swipe up to unlock",
+    "ja": "上にスワイプして解除",
+    "ko": "위로 밀어 잠금 해제"
   }
 }
