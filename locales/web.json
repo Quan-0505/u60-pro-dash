@@ -14453,5 +14453,33 @@
     "ko": "WiFi status unknown",
     "zh-Hans": "WiFi 状态未知",
     "zh-Hant": "WiFi 状态未知"
+  },
+  "China Unicom": {
+    "en": "China Unicom",
+    "zh-Hans": "中国联通",
+    "zh-Hant": "中國聯通",
+    "ja": "中国聯通",
+    "ko": "차이나유니콤"
+  },
+  "China Mobile": {
+    "en": "China Mobile",
+    "zh-Hans": "中国移动",
+    "zh-Hant": "中國移動",
+    "ja": "中国移動",
+    "ko": "차이나모바일"
+  },
+  "China Telecom": {
+    "en": "China Telecom",
+    "zh-Hans": "中国电信",
+    "zh-Hant": "中國電信",
+    "ja": "中国電信",
+    "ko": "차이나텔레콤"
+  },
+  "China Broadnet": {
+    "en": "China Broadnet",
+    "zh-Hans": "中国广电",
+    "zh-Hant": "中國廣電",
+    "ja": "中国広電",
+    "ko": "차이나브로드넷"
   }
 }

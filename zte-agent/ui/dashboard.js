@@ -82,6 +82,14 @@
     if (value !== undefined) node.textContent = value;
     return node;
   }
+  function carrierName(value) {
+    const raw = String(value ?? '').trim();
+    const key = raw.replace(/[\s_-]/g, '').toUpperCase();
+    const names = {UNICOM:'China Unicom',CUCC:'China Unicom',CHINAUNICOM:'China Unicom',
+      CMCC:'China Mobile',CHINAMOBILE:'China Mobile',CTCC:'China Telecom',CHINATELECOM:'China Telecom',
+      CBN:'China Broadnet',CHINABROADNET:'China Broadnet'};
+    return raw ? tr(names[key] || raw) : tr('Operator unavailable');
+  }
   function carrierGroup(rat, group, model, historical = false) {
     const list = $(`${rat}-carriers`), existing = new Map([...list.querySelectorAll('.carrier-card')].map(card=>[card.dataset.carrierKey,card]));
     const count = group.carriers.length;
@@ -124,7 +132,7 @@
   const signalQuality = rsrp => rsrp == null ? tr('Unavailable') : rsrp >= -80 ? tr('Excellent') : rsrp >= -95 ? tr('Good') : rsrp >= -110 ? tr('Fair') : tr('Weak');
   function renderSignal(data) {
     const model = OpenU60Cellular.parse(data || {});
-    text('operator', data?.network_provider ?? tr('Operator unavailable')); text('network-type', data ? model.mode : '—');
+    text('operator', carrierName(data?.network_provider)); text('network-type', data ? model.mode : '—');
     const reportedBars = number(data?.signalbar), bars = reportedBars === null ? null : Math.max(0,Math.min(5,Math.trunc(reportedBars)));
     const meter = $('operator-signal');
     meter.dataset.available = String(bars !== null);
