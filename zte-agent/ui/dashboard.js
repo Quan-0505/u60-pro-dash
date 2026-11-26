@@ -226,25 +226,20 @@
   }
   function renderClients(data) {
     if (data && !data.hosts && !Array.isArray(data.dhcp_leases)) data = null;
-    clients = [];
-    if (data) {
-      const hosts = data.hosts;
-      if (hosts && typeof hosts === 'object') {
-        for (const [mac, host] of Object.entries(hosts)) {
-          if (!host || typeof host !== 'object') continue;
-          clients.push({ name: host.name || tr('Unnamed device'), ip: host.ipaddrs?.join(', ') || host.ipv4?.join(', ') || '—', mac, source: tr('Host hint') });
-        }
-      }
-      for (const lease of data.dhcp_leases ?? []) {
-        if (!clients.some(client => client.mac.toLowerCase() === String(lease.macaddr).toLowerCase())) {
-          clients.push({ name: lease.hostname || tr('Unnamed device'), ip: lease.ipaddr || '—', mac: lease.macaddr || '—', source: tr('DHCP lease') });
-        }
-      }
-    }
+    const detail = lastGood.get('client_details');
+    clients = data || detail ? OpenU60Clients.merge(data, detail?.data).map(item => ({
+      ...item, ip: [...item.ipv4, ...item.ipv6].join(', ') || '—'
+    })) : [];
     if (OpenU60Navigation.current.key !== 'network/clients') text('device-count', data ? clients.length : '—');
     drawClients(data ? undefined : tr('Device data unavailable.'));
   }
+  let clientStatusExpiry;
   function drawClients(message) {
+    clearTimeout(clientStatusExpiry);
+    const detail = lastGood.get('client_details');
+    if (transportLive && detail && Date.now() - detail.at < 10000)
+      clientStatusExpiry = setTimeout(() => drawClients(), Math.max(1, 10000 - (Date.now() - detail.at)));
+
     const query = $('device-search').value.trim().toLowerCase();
     const filtered = clients.filter(client => Object.values(client).some(value => String(value).toLowerCase().includes(query)));
     const body = $('client-list'); body.replaceChildren();
@@ -257,9 +252,15 @@
     for (const client of filtered) {
       const row = body.insertRow();
       row.setAttribute('role', 'row');
-      for (const [key, label] of [['name', tr('Device')], ['ip', tr('IP address')], ['mac', tr('MAC address')], ['source', tr('Source')]]) {
+      for (const [key, label] of [['name', tr('Device')], ['ip', tr('IP address')], ['mac', tr('MAC address')], ['wifiStatus', tr('Wi-Fi status')]]) {
         const cell = row.insertCell();
-        cell.textContent = client[key];
+        if (key === 'wifiStatus') {
+          const detail = lastGood.get('client_details');
+          const fresh = transportLive && readings.get('client_details')?.ok && detail && Date.now() - detail.at < 10000;
+          const connected = OpenU60Clients.wifiStatus(client, detail?.data, fresh);
+          cell.textContent = connected === true ? tr('WiFi connected') : connected === false ? tr('WiFi not connected') : tr('WiFi status unknown');
+          cell.dataset.wifiConnected = connected === null ? 'unknown' : String(connected);
+        } else cell.textContent = client[key];
         cell.dataset.label = label;
         cell.setAttribute('role', 'cell');
       }
@@ -311,7 +312,7 @@
   }
   const renderers = {
     device: renderDevice, wan: renderWan, wan6: renderWan, signal: renderSignal,
-    client_details: () => {}, battery_details: () => {}, https_status: () => {}, dns_cache: () => {}, ota_status: () => {},
+    client_details: () => renderClients(lastGood.get('clients')?.data ?? null), battery_details: () => {}, https_status: () => {}, dns_cache: () => {}, ota_status: () => {},
     esim_status: () => {},
     lan_config: () => {}, firewall_config: () => {}, upnp_config: () => {}, port_rules: () => {}, qos_config: () => {},
     operators: () => {}, forwarding: () => {}, resources: () => {}, neighbors: () => {}, sweep: () => {}, speedtest: () => {}, at_port: () => {}, guest: () => {}, mobile: () => {}, charging: () => {}, thermal: renderThermal, speed: renderSpeed, battery: renderBattery, wifi: renderWifi, clients: renderClients, modem: renderModem, sms: renderSMS, sms_capacity: renderSMSCapacity
@@ -329,6 +330,7 @@
   }
   function markOffline() {
     transportLive = false;
+    drawClients();
     // Current rates must never masquerade as live while the connection is down.
     renderSpeed(null);
     const speed = lastGood.get('speed')?.data;
@@ -365,6 +367,7 @@
     $('notice').classList.toggle('error', failures > 0);
     text('updated', lastReceived ? tr("Last received {0}", clock(lastReceived)) : tr('Waiting for readings'));
     updateConnection();
+    renderClients(lastGood.get('clients')?.data ?? null);
     window.dispatchEvent(new CustomEvent('dashboard:readings',{detail:{readings:message.readings || {},snapshot}}));
   }
   function handleFrame(frame) {
@@ -381,7 +384,7 @@
   }
   function streamOptions() {
     const {group,key} = OpenU60Navigation.current;
-    const topic = {'dashboard/overview':'esim','settings/https':'https','settings/update':'ota','network/esim':'esim','network/clients':'clients','network/dns-cache':'dns','network/lan':'routing','network/firewall':'routing','network/ports':'routing','network/qos':'routing','network/operators':'operators','sms/forwarding':'forwarding','tools/battery':'power','tools/diagnostics':'health','tools/radio':'radio','tools/speedtest':'speedtest','tools/terminal':'terminal'}[key];
+    const topic = {'dashboard/overview':'esim,clients','settings/https':'https','settings/update':'ota','network/esim':'esim','network/clients':'clients','network/dns-cache':'dns','network/lan':'routing','network/firewall':'routing','network/ports':'routing','network/qos':'routing','network/operators':'operators','sms/forwarding':'forwarding','tools/battery':'power','tools/diagnostics':'health','tools/radio':'radio','tools/speedtest':'speedtest','tools/terminal':'terminal'}[key];
     const query = [...(group === 'sms' ? ['sms=1'] : []),...(topic ? [`topics=${topic}`] : [])].join('&');
     return {includeSms:group === 'sms',key:query ? `?${query}` : '',topic};
   }

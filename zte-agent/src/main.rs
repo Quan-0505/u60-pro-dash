@@ -58,6 +58,9 @@ mod ttl;
 mod ubus;
 mod usb;
 mod u60_extensions;
+mod appdpi;
+mod openwrt_settings;
+mod luci_proxy;
 // Retired renderer fixtures; production serves only the responsive console.
 #[cfg(test)]
 mod web;

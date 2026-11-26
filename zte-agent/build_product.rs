@@ -100,7 +100,7 @@ pub fn build(agent: &Path, out: &Path) {
         assets.len()
     );
     for (i, path) in assets.into_iter().enumerate() {
-        let relative = path.strip_prefix(&dist).unwrap().to_str().unwrap();
+        let relative = path.strip_prefix(&dist).unwrap().to_str().unwrap().replace(std::path::MAIN_SEPARATOR, "/");
         let mime = match path.extension().and_then(|s| s.to_str()) {
             Some("html") => "text/html; charset=utf-8",
             Some("js") => "text/javascript; charset=utf-8",

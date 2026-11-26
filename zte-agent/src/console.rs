@@ -17,6 +17,7 @@ include!(concat!(env!("OUT_DIR"), "/product_assets.rs"));
 pub fn router() -> Router<Ctx> {
     Router::new()
         .merge(crate::proxy::panel_http::router())
+        .merge(crate::luci_proxy::router())
         .route("/", get(serve).fallback(api::api_entry))
         .route("/ui", any(serve))
         .route("/ui/", any(serve))
@@ -131,6 +132,9 @@ async fn serve(State(ctx): State<Ctx>, req: Request) -> Response {
     headers.insert(CONTENT_TYPE, HeaderValue::from_static(mime));
     headers.insert(CACHE_CONTROL, HeaderValue::from_static("no-store"));
     for (name,value) in [("x-content-type-options","nosniff"),("referrer-policy","no-referrer"),("content-security-policy","default-src 'none'; script-src 'self'; style-src 'self'; connect-src 'self'; img-src 'self'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'; manifest-src 'self'")] {headers.insert(name,HeaderValue::from_static(value));}
+    if matches!(path, "/console" | "/console/") {
+        headers.insert("content-security-policy", HeaderValue::from_static("default-src 'none'; script-src 'self'; style-src 'self'; connect-src 'self'; img-src 'self'; base-uri 'none'; frame-ancestors 'none'; frame-src 'self'; form-action 'self'; manifest-src 'self'"));
+    }
     reply
 }
 
@@ -298,6 +302,14 @@ fn asset(path: &str) -> Option<(&'static str, &'static str)> {
         "/console/a/u60-extensions.js" => Some((
             "text/javascript; charset=utf-8",
             include_str!("../ui/u60-extensions.js"),
+        )),
+        "/console/a/openwrt-settings.js" => Some((
+            "text/javascript; charset=utf-8",
+            include_str!("../ui/openwrt-settings.js"),
+        )),
+        "/console/a/appdpi.js" => Some((
+            "text/javascript; charset=utf-8",
+            include_str!("../ui/appdpi.js"),
         )),
         "/console/a/u60-catalog.js" => Some((
             "text/javascript; charset=utf-8",

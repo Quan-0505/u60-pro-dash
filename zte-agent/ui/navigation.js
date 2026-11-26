@@ -6,6 +6,7 @@
     network: '<path d="M3 9a15 15 0 0 1 18 0M6 13a10 10 0 0 1 12 0m-9 4a5 5 0 0 1 6 0"/><circle cx="12" cy="21" r=".5"/>',
     sms: '<path d="M21 11a8 8 0 0 1-8 8H7l-4 3V5a3 3 0 0 1 3-3h7a8 8 0 0 1 8 9Z"/><path d="M7 8h10M7 12h7"/>',
     tools: '<path d="m14 6 4-4a6 6 0 0 1-7 8L4 21l-3-3L12 7a6 6 0 0 1 8-7l-4 4 1 3 3 1"/>',
+    openwrt: '<rect x="3" y="5" width="18" height="14" rx="2"/><path d="m7 9 3 3-3 3m6 0h4"/>',
     settings: '<path d="m10 3-1 3-3 1-3 3 2 3-1 3 3 3 3-1 3 2 3-3 1-3 3-1-1-4-3-1-1-3Z"/><circle cx="12" cy="12" r="3"/>'
   };
   const groups = [
@@ -18,6 +19,7 @@
       {id:'signal',label:tr('Signal & Cells'),title:tr('Signal & Cells'),description:tr('Every reported LTE and NR carrier, with clear SA and NSA status.')},
       {id:'wifi',label:tr('Wi-Fi'),title:tr('Wi-Fi networks'),description:tr('Your local wireless networks and radio status.')},
       {id:'clients',label:tr('Connected Devices'),title:tr('Connected devices'),description:tr('Your devices, live traffic, observed peaks and reported speed limits.')},
+      {id:'appdpi',label:tr('AppDPI'),title:'AppDPI · '+tr('Application traffic'),description:tr('Live application and connection statistics for LAN devices.')},
       {id:'dns',label:tr('DNS & Privacy'),title:tr('DNS & privacy'),description:tr('Choose how names are resolved, test encrypted DNS and recover safely from bad settings.')},
       {id:'dns-cache',label:tr('Live DNS Cache'),title:tr('Live DNS cache'),description:tr('Watch answers enter the router cache, count down and disappear when they expire.')},
       {id:'proxy',label:tr('Proxies'),title:tr('Proxy services'),description:tr('Independent services, each with its own configuration and controls.')},
@@ -58,6 +60,14 @@
       {id:'data',label:tr('Data usage'),title:tr('Data usage'),description:tr('Track router-measured usage and set a monthly allowance, warning and billing cycle.')},
       {id:'terminal',label:tr('AT terminal'),title:tr('AT terminal'),description:tr('Send an explicit modem command and inspect its response.')},
       {id:'traffic',label:tr('Traffic monitor'),title:tr('Traffic monitor'),description:tr('Live transfer rates and interface totals, streamed from the router.')}
+    ]},
+    {id:'openwrt',label:'OpenWrt',pages:[
+      {id:'full',label:'完整 LuCI',title:'OpenWrt LuCI',description:'在本页使用完整的 OpenWrt 管理界面。'},
+      {id:'index',label:'设置总览',title:'OpenWrt 设置',description:'查找原厂系统与 LuCI 的管理功能。'},
+      {id:'system-log',label:'系统日志',title:'系统日志',description:'查看 U60 系统最近的 200 条日志。'},
+      {id:'kernel-log',label:'内核日志',title:'内核日志',description:'查看 U60 内核最近的 200 条日志。'},
+      {id:'mounts',label:'挂载信息',title:'挂载信息',description:'查看当前挂载点、文件系统和读写状态。'},
+      {id:'packages',label:'已安装软件',title:'已安装软件',description:'查看 LuCI 24.10 环境中已安装的软件包。'}
     ]},
     {id:'settings',label:tr('Settings'),pages:[
       {id:'device',label:tr('Device & Power'),title:tr('Device & power'),description:tr('Charging, power settings and device maintenance.')},

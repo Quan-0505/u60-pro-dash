@@ -170,6 +170,9 @@ pub fn precheck(req: &ReqInfo, env: &PreEnv) -> Pre {
         }
         _ => {}
     }
+    if (req.path == "/api/u60/appdpi" || req.path.starts_with("/api/u60/openwrt/")) && principal.is_none() {
+        return refuse(403, "agent password required");
+    }
     let live_activity = req.path.starts_with("/api/live-activity");
     if live_activity && !has_password {
         return refuse(403, "agent password required");
@@ -224,6 +227,7 @@ pub fn lane(method: Method, path: &str) -> Lane {
     let slow = match (method, path) {
         (Get, p) if p.starts_with("/api/software/") && p.ends_with("/release") => true,
         (Get, "/api/network/client-details") => true,
+        (Get, path) if path.starts_with("/api/u60/openwrt/") => true,
         (Get, "/api/esim/switch")
         | (Get | Delete, "/api/esim/download")
         | (Post, "/api/esim/download/confirm" | "/api/esim/download/cancel")
@@ -503,6 +507,10 @@ fn route_inner(method: &Method, path: &str, state: &AppState, body: &[u8]) -> (u
             "/api/proxy/enable" | "/api/proxy/disable" | "/api/proxy/restart" |
             "/api/proxy/config" | "/api/proxy/subscription" | "/api/proxy/validate" | "/api/proxy/reload" | "/api/proxy/install" | "/api/proxy/select"
         ) => proxy::change(state, path.rsplit('/').next().unwrap(), body),
+        (&Method::Get, "/api/u60/appdpi") => crate::appdpi::snapshot(),
+        (&Method::Get, path) if path.starts_with("/api/u60/openwrt/") => {
+            crate::openwrt_settings::read(path.trim_start_matches("/api/u60/openwrt/"))
+        }
         (&Method::Get, "/api/nodebaby/status") => nodebaby_status(),
         (method, path) if path.starts_with("/api/u60/extensions/") => crate::u60_extensions::route(method, path.trim_start_matches("/api/u60/extensions/"), body),
         (method @ (Method::Get | Method::Put), path @ ("/api/u60/adb/wired" | "/api/u60/adb/wireless")) => u60_adb(method, path, body),

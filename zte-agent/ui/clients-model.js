@@ -23,10 +23,14 @@
     }
     return [...found.values()].filter(item=>!own.has(item.mac) || item.connected===true).sort((a,b)=>Number(b.connected===true)-Number(a.connected===true) || String(a.name).localeCompare(String(b.name)) || a.mac.localeCompare(b.mac)).slice(0,256);
   }
+  function wifiStatus(item,details,fresh) {
+    if (!fresh || !details?.sources?.wireless || item.connection_stale) return null;
+    return item.connection_type === 'wifi' && item.connected === true;
+  }
   function rate(value,missing=tr('Not reported')) { const n=number(value);if(n===null)return missing;const [scale,unit]=n>=1e12 ? [1e12,tr('Tbps')] : n>=1e9 ? [1e9,tr('Gbps')] : [1e6,tr('Mbps')];return `${(n/scale).toFixed(2)} ${unit}`; }
   function bytes(value) { const n=number(value);if(n===null)return tr('Not reported');const scale=n>=1e12?['TB',1e12]:n>=1e9?['GB',1e9]:n>=1e6?['MB',1e6]:n>=1e3?['KB',1e3]:['B',1];return `${(n/scale[1]).toFixed(scale[1]===1?0:2)} ${scale[0]}`; }
   function connection(item) { const kind=item.connection_type;if(kind==='usb')return 'USB';if(kind==='wired')return tr('Ethernet');if(kind==='wifi')return ({'2.4G':tr('2.4 GHz Wi-Fi'),'2G':tr('2.4 GHz Wi-Fi'),'5G':tr('5 GHz Wi-Fi'),'6G':tr('6 GHz Wi-Fi')}[item.band] || tr('Wi-Fi'));return tr('Connection not reported'); }
   function matches(item,query) {return [item.name,item.mac,...item.ipv4,...item.ipv6,connection(item),item.interface,item.source].filter(Boolean).join(' ').toLowerCase().includes(query.trim().toLowerCase());}
-  const api={mac,number,addresses,merge,rate,bytes,connection,matches};
+  const api={mac,number,addresses,merge,wifiStatus,rate,bytes,connection,matches};
   if(typeof module==='object' && module.exports)module.exports=api;else globalThis.OpenU60Clients=api;
 })();
